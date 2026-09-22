@@ -652,7 +652,7 @@ const PROGRESS = shell(
   `<div><a class="muted" href="/account">&larr; Account</a></div>
    <div style="margin-top:16px"><span class="eyebrow">Reading progress</span>
      <h1>Synced books</h1>
-     <p class="sub">All synced books with their latest progress. Removing a book deletes its synced progress and everything else stored here for it.</p></div>
+     <p class="sub">All synced books with their latest progress. Removing a book deletes its synced progress and everything else stored here for it. If the same book shows up twice (two devices can identify one book differently), merge the listings and they will sync as one.</p></div>
    <div class="err" id="err"></div>
    <div id="list" style="margin-top:8px"><p class="muted">Loading…</p></div>
 
@@ -660,7 +660,7 @@ const PROGRESS = shell(
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 async function jget(u){ const r = await fetch(u); return { ok:r.ok, status:r.status, data:await r.json().catch(()=>({})) }; }
-async function jsend(u, m='POST'){ const r = await fetch(u,{method:m}); return { ok:r.ok, status:r.status, data:await r.json().catch(()=>({})) }; }
+async function jsend(u, m='POST', body){ const r = await fetch(u,{method:m,headers:body?{'content-type':'application/json'}:undefined, body: body?JSON.stringify(body):undefined}); return { ok:r.ok, status:r.status, data:await r.json().catch(()=>({})) }; }
 
 let BOOKS = [];
 
@@ -672,12 +672,17 @@ function card(b) {
   const percent = (value * 100).toFixed(1).replace(/\\.0$/, '');
   const author = b.author ? '<div class="meta">' + esc(b.author) + '</div>' : '';
   const device = b.device || b.device_id ? 'Device: ' + esc(b.device || b.device_id) : '';
+  const page = b.page && b.pages ? ' · Page ' + b.page + ' of ' + b.pages : '';
   const when = b.timestamp ? ' · Last synced: ' + new Date(b.timestamp * 1000).toLocaleString() : '';
+  const merged = (b.aliases || []).map(a =>
+    '<div class="meta">Merged with <span class="mono">' + esc(a.slice(0, 12)) + '…</span> <a href="#" data-unmerge="' + esc(a) + '">unmerge</a></div>').join('');
   return '<div class="sync-book"><div class="row"><div style="min-width:0"><div class="title" title="' + esc(title) + '">' + esc(title) + '</div>'
-    + author + '<div class="meta">' + device + when + '</div></div>'
+    + author + '<div class="meta">' + device + page + when + '</div>' + merged + '</div>'
     + '<div class="actions"><b class="mono" style="font-size:13px">' + percent + '%</b>'
+    + '<button class="ghost sm" data-merge="' + esc(b.document) + '">Merge</button>'
     + '<button class="danger sm" data-remove="' + esc(b.document) + '">Remove</button></div></div>'
-    + '<div class="progress-track" role="progressbar" aria-valuenow="' + (value * 100) + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width:' + (value * 100) + '%"></div></div></div>';
+    + '<div class="progress-track" role="progressbar" aria-valuenow="' + (value * 100) + '" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width:' + (value * 100) + '%"></div></div>'
+    + '<div id="merge-' + esc(b.document) + '" hidden style="margin-top:10px"></div></div>';
 }
 
 function render() {
@@ -685,6 +690,47 @@ function render() {
   if (!BOOKS.length) { el.innerHTML = '<div class="card"><p class="muted" style="margin:0">No synced books yet. Read something on your device first.</p></div>'; return; }
   el.innerHTML = BOOKS.map(card).join('');
   el.querySelectorAll('[data-remove]').forEach(btn => btn.onclick = () => removeBook(btn));
+  el.querySelectorAll('[data-merge]').forEach(btn => btn.onclick = () => openMerge(btn.dataset.merge));
+  el.querySelectorAll('[data-unmerge]').forEach(a => a.onclick = (e) => { e.preventDefault(); unmerge(a.dataset.unmerge); });
+}
+
+// Pick which other listing this book is the same as; this listing folds into
+// the one picked (the picked one's hash stays canonical).
+function openMerge(doc) {
+  const box = $('merge-' + doc);
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false;
+  const others = BOOKS.filter(b => b.document !== doc);
+  if (!others.length) { box.innerHTML = '<p class="muted" style="margin:0">No other synced books to merge with.</p>'; return; }
+  box.innerHTML = '<div class="grp">This is the same book as</div>' + others.map(b => {
+    const pct = (Math.max(0, Math.min(1, Number(b.percentage) || 0)) * 100).toFixed(1).replace(/\\.0$/, '');
+    return '<div class="row" style="padding:6px 0"><div style="min-width:0"><div class="title">' + esc(bookTitle(b)) + '</div>'
+      + '<div class="meta">' + pct + '% · ' + esc(b.device || b.device_id || '') + '</div></div>'
+      + '<button class="ghost sm" data-into="' + esc(b.document) + '">Merge</button></div>';
+  }).join('');
+  box.querySelectorAll('[data-into]').forEach(btn => btn.onclick = async () => {
+    $('err').textContent = '';
+    btn.disabled = true; btn.textContent = 'Merging…';
+    let r;
+    try { r = await jsend('/api/v1/documents/merge', 'POST', { document: doc, into: btn.dataset.into }); }
+    catch { r = { ok:false, data:{} }; }
+    if (!r.ok) {
+      $('err').textContent = r.data.message || 'Could not merge.';
+      btn.disabled = false; btn.textContent = 'Merge';
+      return;
+    }
+    load();
+  });
+}
+
+async function unmerge(alias) {
+  if (!confirm('Unmerge this listing? The old copy starts syncing separately again; progress already merged stays here.')) return;
+  $('err').textContent = '';
+  let r;
+  try { r = await jsend('/api/v1/documents/merge/' + encodeURIComponent(alias), 'DELETE'); }
+  catch { r = { ok:false, data:{} }; }
+  if (!r.ok) { $('err').textContent = r.data.message || 'Could not unmerge.'; return; }
+  load();
 }
 
 async function removeBook(btn) {
@@ -710,13 +756,14 @@ async function removeBook(btn) {
   render();
 }
 
-(async () => {
+async function load() {
   const r = await jget('/api/v1/progress?limit=500');
   if (r.status === 409) { location.href = '/account'; return; }
   if (!r.ok) { $('list').innerHTML = '<p class="muted">Could not load synced books.</p>'; return; }
   BOOKS = r.data.items || [];
   render();
-})();
+}
+load();
 </script>`
 );
 
