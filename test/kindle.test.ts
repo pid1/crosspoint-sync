@@ -225,6 +225,17 @@ describe('kindle connector', () => {
     expect(change).toBeNull();
   });
 
+  it('does not let an undated annotation outrank existing progress', async () => {
+    const undated = '<book><last_read pos="25000" source_device="Kindle" method="FRL" version="0"/></book>';
+    const fake = fionaFake({ lastReadXml: undated });
+    const match = { externalId: 'PDOC:B0NODATE01', externalEdition: '100000', confidence: 1 };
+    // Progress already exists: skip rather than stamping the position "now".
+    expect(await kindleConnector.pullProgress!(testCred(), match, fake.transport, 1000)).toBeNull();
+    // First sync (no progress yet): the undated position is still usable.
+    const change = await kindleConnector.pullProgress!(testCred(), match, fake.transport, 0);
+    expect(change?.percentage).toBeCloseTo(0.25, 5);
+  });
+
   it('returns null for a doc that never synced (no sidecar)', async () => {
     const fake = fionaFake({ sidecarStatus: 404 });
     const change = await kindleConnector.pullProgress!(

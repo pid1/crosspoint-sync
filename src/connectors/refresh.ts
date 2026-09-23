@@ -17,11 +17,13 @@ export type ProgressRefresh = (userId: number, document: string) => Promise<void
  *                Non-strict pullers (Kindle) are best-effort: a sick Amazon session
  *                must never break a device's sync, so errors are logged and skipped.
  * sidecarOnly:   only poll when the match came from the book's plugin sidecar.
- * matchOnDemand: when no match exists yet, resolve one right here (Kindle's match
- *                is a LOCAL search over the uploaded library snapshot — no network,
- *                so a read-only connector still gets auto-matching without fan-out
- *                ever running). A stale 'not found' is retried only when the
- *                credential (which carries the library) was re-uploaded since.
+ * matchOnDemand: when no match exists yet, resolve one right here, so a read-only
+ *                connector still gets auto-matching without fan-out ever running.
+ *                Kindle's match searches the uploaded library snapshot plus the
+ *                cached purchased-book list; a cold cache costs one network fetch
+ *                inside the progress GET, bounded by the refresh deadline. A stale
+ *                'not found' is retried only when the credential (which carries
+ *                the library) was re-uploaded since.
  */
 const PER_BOOK_PULLERS: { id: string; strict: boolean; sidecarOnly: boolean; matchOnDemand?: boolean }[] = [
   { id: 'bookfusion', strict: true, sidecarOnly: true },

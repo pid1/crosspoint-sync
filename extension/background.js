@@ -144,7 +144,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg?.type) {
       case 'connect': {
         const server = (msg.server.includes('://') ? msg.server : `https://${msg.server}`).replace(/\/+$/, '');
-        const authKey = await md5hex(msg.password);
+        const authKey = md5hex(msg.password);
         const res = await fetch(`${server}/users/auth`, {
           headers: { 'x-auth-user': msg.username, 'x-auth-key': authKey, accept: 'application/vnd.koreader.v1+json' },
         });
@@ -211,12 +211,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // async response
 });
 
-async function md5hex(s) {
-  // MD5 is the kosync password-at-rest protocol (the server never sees plaintext).
-  // WebCrypto has no MD5, so this is always the JS implementation.
-  return md5Fallback(s);
-}
-
 function randomHex(bytes) {
   const buf = new Uint8Array(bytes);
   crypto.getRandomValues(buf);
@@ -229,9 +223,10 @@ function randomHex(bytes) {
 // never matches simply doesn't sync to Kindle — that is the normal case, not an
 // error.
 
-// Compact JS MD5 (only used if WebCrypto lacks MD5). Public-domain style reference
-// implementation, ASCII/UTF-8 input.
-function md5Fallback(input) {
+// Compact JS MD5 (WebCrypto has none). MD5 is the kosync password-at-rest
+// protocol; the server never sees plaintext. Public-domain style reference
+// implementation, UTF-8 input.
+function md5hex(input) {
   const s = unescape(encodeURIComponent(input));
   const K = [
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,

@@ -51,6 +51,8 @@ export function kindleRegisterRoutes(
     }
   }
 
+  // Socket address only, ignoring X-Forwarded-For: behind a proxy all clients
+  // share one rate bucket, which is fine for this self-host single-user opt-in.
   function clientIp(c: Context<AppEnv>): string {
     return c.env?.incoming?.socket?.remoteAddress ?? 'unknown';
   }
