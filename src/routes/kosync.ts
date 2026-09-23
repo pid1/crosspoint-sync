@@ -12,6 +12,16 @@ import {
 import { hashKey, looksLikeMd5, md5Hex } from '../auth/password.js';
 import { parsePosition } from '../models/position.js';
 import { resolveDocument } from '../models/merge.js';
+import {
+  commonIdentifier,
+  decodeList,
+  encodeList,
+  parseList,
+  parseQuery,
+  registerAliases,
+  resolveIdentifiers,
+  type Identifier,
+} from '../models/identifiers.js';
 import { nowSeconds } from '../models/sync.js';
 import { fanOutProgress } from '../connectors/fanout.js';
 import { seedSidecarMatches } from '../connectors/store.js';
@@ -34,6 +44,8 @@ export interface ProgressUpsert {
   position: string | null;
   metadata: DocumentMetadata | null;
   updatedAt: number;
+  /** Encoded identifier list this push named, or null when it named none. */
+  identifiers?: string | null;
 }
 
 /** Optional document metadata sent by CrossPoint/KOReader (KOReader PR #15306). */
@@ -161,15 +173,26 @@ export function nearestProgressSample(
 
 export function upsertProgress(db: DB, p: ProgressUpsert): void {
   db.prepare(
-    `INSERT INTO progress (user_id, document, device_id, device, percentage, progress, position, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO progress (user_id, document, device_id, device, percentage, progress, position, updated_at, identifiers)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, document, device_id) DO UPDATE SET
        device = excluded.device,
        percentage = excluded.percentage,
        progress = excluded.progress,
        position = COALESCE(excluded.position, progress.position),
-       updated_at = excluded.updated_at`
-  ).run(p.userId, p.document, p.deviceId, p.device, p.percentage, p.progress, p.position, p.updatedAt);
+       updated_at = excluded.updated_at,
+       identifiers = excluded.identifiers`
+  ).run(
+    p.userId,
+    p.document,
+    p.deviceId,
+    p.device,
+    p.percentage,
+    p.progress,
+    p.position,
+    p.updatedAt,
+    p.identifiers ?? null
+  );
   if (p.metadata) {
     upsertDocumentMetadata(db, p.userId, p.document, p.metadata, p.updatedAt);
     // Exact service ids from the plugin sidecar bypass fuzzy matching: seed the
@@ -236,6 +259,21 @@ export function parseProgressBody(
   };
 }
 
+/**
+ * The identifiers a request offered: null when it named none, `'invalid'` when
+ * the list is malformed or does not open with the document itself.
+ *
+ * The first entry has to be `document` so that it keeps meaning "the identifier
+ * I would send if you only took one", and an old client and a new one
+ * addressing the same file address the same record. A malformed list is an
+ * error rather than a fall back to "none named", which would answer a matching
+ * request with an unmatched body.
+ */
+function readIdentifiers(list: Identifier[] | null, document: string): Identifier[] | null | 'invalid' {
+  if (list === null) return 'invalid';
+  return list[0].value === document ? list : 'invalid';
+}
+
 export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRefresh = async () => {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const auth = authMiddleware(db);
@@ -294,10 +332,27 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
     if (!parsed.ok) {
       return kosyncError(c, 403, parsed.code, parsed.message);
     }
-    // A merged document stores under its canonical hash; echo the client's own
-    // hash back so the device recognizes the response.
     const clientDocument = parsed.record.document;
-    parsed.record.document = resolveDocument(db, user.id, clientDocument);
+    const offered = (body as Record<string, unknown>).identifiers;
+    const identifiers =
+      offered === undefined || offered === null ? null : readIdentifiers(parseList(offered), clientDocument);
+    if (identifiers === 'invalid') {
+      return kosyncError(c, 403, 2003, 'Invalid request');
+    }
+    let match: string | undefined;
+    if (identifiers) {
+      // A copy sharing an identifier with a record this account already holds
+      // writes to that record; otherwise this push creates one under its own
+      // digest, which is the first identifier.
+      const hit = resolveIdentifiers(db, user.id, identifiers);
+      parsed.record.document = hit?.document ?? resolveDocument(db, user.id, clientDocument);
+      parsed.record.identifiers = encodeList(identifiers);
+      match = hit?.type ?? identifiers[0].type;
+    } else {
+      // A merged document stores under its canonical hash; echo the client's
+      // own hash back so the device recognizes the response.
+      parsed.record.document = resolveDocument(db, user.id, clientDocument);
+    }
     upsertProgress(db, parsed.record);
     // Harvest this real device position as a (percentage -> position) sample so
     // fan-in can later replay a real position for a percentage-only update.
@@ -311,6 +366,12 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
       parsed.record.updatedAt
     );
     fanOutProgress(db, user.id, parsed.record.document, parsed.record.percentage, parsed.record.updatedAt, parsed.record.progress, parsed.record.position);
+    if (identifiers) {
+      registerAliases(db, user.id, identifiers, parsed.record.document, parsed.record.updatedAt);
+      // The canonical digest, so the next request can address the record
+      // directly. No progress_match on a write: the writer is this request.
+      return c.json({ document: parsed.record.document, match, timestamp: parsed.record.updatedAt });
+    }
     return c.json({ document: clientDocument, timestamp: parsed.record.updatedAt });
   });
 
@@ -320,7 +381,14 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
       return kosyncError(c, 403, 2004, "Field 'document' not provided.");
     }
     const user = c.get('user');
-    const canonical = resolveDocument(db, user.id, document);
+    const ids = c.req.query('ids');
+    const identifiers = ids === undefined ? null : readIdentifiers(parseQuery(ids), document);
+    if (identifiers === 'invalid') {
+      return kosyncError(c, 403, 2003, 'Invalid request');
+    }
+    const hit = identifiers ? resolveIdentifiers(db, user.id, identifiers) : null;
+    if (identifiers && !hit) return c.json({});
+    const canonical = hit?.document ?? resolveDocument(db, user.id, document);
     try {
       await refreshProgress(user.id, canonical);
     } catch (error) {
@@ -329,7 +397,7 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
     }
     const row = db
       .prepare(
-        `SELECT document, progress, percentage, device, device_id, updated_at
+        `SELECT document, progress, percentage, device, device_id, updated_at, identifiers
          FROM progress WHERE user_id = ? AND document = ?
          ORDER BY updated_at DESC, device_id LIMIT 1`
       )
@@ -341,19 +409,32 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
           device: string;
           device_id: string;
           updated_at: number;
+          identifiers: string | null;
         }
       | undefined;
     if (!row) {
       // Stock kosync returns 200 with an empty object; KOReader clients rely on it.
       return c.json({});
     }
-    return c.json({
+    const found = {
       document, // the hash the client asked about, not the canonical one
       progress: row.progress,
       percentage: row.percentage,
       device: row.device,
       device_id: row.device_id,
       timestamp: row.updated_at,
+    };
+    if (!identifiers || !hit) return c.json(found);
+    // Compared against the identifiers stored beside the position they were
+    // written with, so a list is never attributed to a string its owner did not
+    // write. A position written by a client that named none belongs to the
+    // digest it is stored under.
+    const writer = decodeList(row.identifiers);
+    return c.json({
+      ...found,
+      document: hit.document, // the canonical digest, which the caller may not have
+      match: hit.type,
+      progress_match: writer ? (commonIdentifier(identifiers, writer) ?? 'none') : hit.type,
     });
   });
 

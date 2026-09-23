@@ -92,11 +92,13 @@ export function mergeDocuments(db: DB, userId: number, from: string, into: strin
 
     // Flatten chains (anything aliased to `from` now points at `into`), then
     // record the merge itself.
-    db.prepare('UPDATE document_aliases SET document = ? WHERE user_id = ? AND document = ?').run(
-      into,
-      userId,
-      from
-    );
+    for (const table of ['document_aliases', 'identifier_aliases']) {
+      db.prepare(`UPDATE ${table} SET document = ? WHERE user_id = ? AND document = ?`).run(
+        into,
+        userId,
+        from
+      );
+    }
     db.prepare(
       'INSERT OR REPLACE INTO document_aliases (user_id, alias, document, created_at) VALUES (?, ?, ?, ?)'
     ).run(userId, from, into, now);
