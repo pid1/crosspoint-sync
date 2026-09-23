@@ -42,6 +42,8 @@ Body shape is always `{"code": 2001, "message": "Unauthorized"}`.
 `document` is an opaque key chosen by the client, up to 64 chars of `[A-Za-z0-9._-]`. CrossPoint
 sends the KOReader 32-hex MD5 (partial-binary or filename method, per device setting). The server
 never tries to unify the two hash methods; a book synced under both appears as two documents.
+A client that knows two keys name one book can say so per request — see
+[multi-identifier matching](#multi-identifier-document-matching-optional).
 
 ---
 
@@ -155,6 +157,58 @@ Returns the newest progress **across all of the user's devices** (most recent `t
 
 **Quirk (stock-compatible):** if no progress exists, the response is `200` with `{}` — not 404.
 KOReader clients check for field presence, not status codes.
+
+### Multi-identifier document matching (optional)
+
+Tracks [koreader/koreader-sync-server#55](https://github.com/koreader/koreader-sync-server/pull/55),
+which is open and unmerged. A reader who recompresses an EPUB, re-downloads it from another shop or
+converts it gets a different `document` and loses the position, even though it is the same book. A
+client that can compute several digests for one file offers them all, strongest first, and the
+server matches on the first one it recognises.
+
+```jsonc
+// PUT /syncs/progress
+{
+  "document": "<content digest>",
+  "identifiers": [
+    {"type": "content",   "value": "<content digest>"},
+    {"type": "structure", "value": "<structure digest>"},
+    {"type": "metadata",  "value": "<metadata digest>"}
+  ],
+  "progress": "/body/DocFragment[20]/body/p[22]", "percentage": 0.32, "device": "kpw"
+}
+// 200 response
+{"document": "<canonical digest>", "match": "content", "timestamp": 1752345678}
+```
+
+```
+GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,metadata:<m>
+```
+
+```json
+{"document": "<canonical digest>", "progress": "…", "percentage": 0.32,
+ "device": "kpw", "device_id": "kpw", "timestamp": 1752345678,
+ "match": "structure", "progress_match": "metadata"}
+```
+
+- `type` is an opaque label chosen by the client: the server stores and echoes it without
+  interpreting it, so a new kind of identifier needs no server change.
+- `document` in the response is the **canonical** key the record is stored under, which is not
+  necessarily the one the request sent. Address that one on the next request.
+- `match` is the type that **found** the record. `progress_match` is the strongest identifier the
+  caller shares with whoever **wrote the current `progress` string**, or `"none"`. They answer
+  different questions: a reader can match a record on its own content digest and still be reading a
+  different edition from the one that wrote the position, in which case the xpointer does not apply.
+  Only `progress_match` bears on whether the position can be followed.
+- The **first entry's `value` must equal `document`**, so `document` keeps meaning "the identifier I
+  would send if you only took one". At most 8 entries, no repeated `type`, `type` matching
+  `[a-z][a-z0-9-]*` (≤32 chars), `value` matching `[A-Za-z0-9][A-Za-z0-9._-]*` (≤128 chars).
+  Anything else is `403` with code `2003`, including a malformed `ids`.
+- Identifiers other than the record's own become **aliases** for it, per account. An alias is
+  created and never repointed, and never shadows a digest that is a document in its own right.
+- **A request that names no identifiers is answered exactly as it always was**: no `match`, no
+  `progress_match`, and the read follows no alias. Aliases belong to callers who opt in. Manual
+  merges (`POST /api/v1/documents/merge`) are separate and still apply to every request.
 
 ---
 
@@ -535,6 +589,7 @@ Unauthenticated. `{"status": "ok", "version": "0.1.0"}`.
 | Batch items per PUT (per-book stats) | 20 |
 | List page size | default 50, max 100 |
 | `progress` string | 4096 bytes |
+| `identifiers` per request | 8 |
 | position `anchor` / `xpath` | 48 / 120 bytes |
 | clipping `text` / `note` / `chapter` | 2048 / 4096 bytes / 64 chars |
 | bookmark `xpath` / `summary` | 512 / 256 chars |

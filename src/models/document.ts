@@ -47,11 +47,14 @@ export function deleteDocumentData(db: DB, userId: number, document: string): nu
         .run(userId, document);
       rows += Number(result.changes);
     }
-    // Merge mappings in either direction die with the book too.
-    const aliasResult = db
-      .prepare('DELETE FROM document_aliases WHERE user_id = ? AND (alias = ? OR document = ?)')
-      .run(userId, document, document);
-    rows += Number(aliasResult.changes);
+    // Merge mappings in either direction die with the book too, as do the
+    // identifiers that resolved to it.
+    for (const table of ['document_aliases', 'identifier_aliases']) {
+      const aliasResult = db
+        .prepare(`DELETE FROM ${table} WHERE user_id = ? AND (alias = ? OR document = ?)`)
+        .run(userId, document, document);
+      rows += Number(aliasResult.changes);
+    }
   });
   return rows;
 }
