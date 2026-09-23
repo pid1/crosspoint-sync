@@ -92,10 +92,21 @@ export function commonIdentifier(reader: Identifier[], writer: Identifier[]): st
   return null;
 }
 
+/**
+ * The type a list creates a record under: the label the caller gave the entry
+ * whose value is `document`, wherever the list ranks it. Undefined for a list
+ * naming no such entry, which is what makes such a list invalid.
+ */
+export function documentType(list: Identifier[], document: string): string | undefined {
+  return list.find((i) => i.value === document)?.type;
+}
+
 /** The document an offered list resolved to, under the caller's own label. */
 export interface IdentifierMatch {
   document: string;
   type: string;
+  /** Its rank in the caller's list; nothing above it describes the record. */
+  index: number;
 }
 
 function hasProgress(db: DB, userId: number, document: string): boolean {
@@ -128,18 +139,21 @@ export function resolveIdentifiers(
   userId: number,
   list: Identifier[]
 ): IdentifierMatch | null {
-  for (const { type, value } of list) {
+  for (const [index, { type, value }] of list.entries()) {
     const document = resolveDocument(db, userId, value);
-    if (hasProgress(db, userId, document)) return { document, type };
+    if (hasProgress(db, userId, document)) return { document, type, index };
     const target = aliasTarget(db, userId, value);
-    if (target !== null && hasProgress(db, userId, target)) return { document: target, type };
+    if (target !== null && hasProgress(db, userId, target)) {
+      return { document: target, type, index };
+    }
   }
   return null;
 }
 
 /**
- * Record every offered identifier that is not the record's own digest as an
- * alias for it.
+ * Record every identifier in `list` that is not the record's own digest as an
+ * alias for it. The caller passes the identifiers from the match down, never
+ * the whole offered list.
  *
  * One statement per identifier rather than a read and then a write: the primary
  * key is what makes "create, never repoint" hold against a concurrent push, the

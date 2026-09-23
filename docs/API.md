@@ -173,7 +173,7 @@ server matches on the first one it recognises.
   "identifiers": [
     {"type": "content",   "value": "<content digest>"},
     {"type": "structure", "value": "<structure digest>"},
-    {"type": "metadata",  "value": "<metadata digest>"}
+    {"type": "filename",  "value": "<filename digest>"}
   ],
   "progress": "/body/DocFragment[20]/body/p[22]", "percentage": 0.32, "device": "kpw"
 }
@@ -182,17 +182,20 @@ server matches on the first one it recognises.
 ```
 
 ```
-GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,metadata:<m>
+GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,filename:<f>
 ```
 
 ```json
 {"document": "<canonical digest>", "progress": "…", "percentage": 0.32,
  "device": "kpw", "device_id": "kpw", "timestamp": 1752345678,
- "match": "structure", "progress_match": "metadata"}
+ "match": "structure", "progress_match": "filename"}
 ```
 
 - `type` is an opaque label chosen by the client: the server stores and echoes it without
-  interpreting it, so a new kind of identifier needs no server change.
+  interpreting it, so a new kind of identifier needs no server change. It is not opaque to the
+  clients, which have to compute a label the same way to agree on what it means. The registry is
+  `content` (the file's own digest), `structure` (md5 over the spine) and `filename` (md5 of the
+  file name); the recipes are in §5.8 of the spec.
 - `document` in the response is the **canonical** key the record is stored under, which is not
   necessarily the one the request sent. Address that one on the next request.
 - `match` is the type that **found** the record. `progress_match` is the strongest identifier the
@@ -200,12 +203,19 @@ GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,metadata:<m>
   different questions: a reader can match a record on its own content digest and still be reading a
   different edition from the one that wrote the position, in which case the xpointer does not apply.
   Only `progress_match` bears on whether the position can be followed.
-- The **first entry's `value` must equal `document`**, so `document` keeps meaning "the identifier I
-  would send if you only took one". At most 8 entries, no repeated `type`, `type` matching
+- **One entry's `value` must equal `document`**, so `document` keeps meaning "the identifier I
+  would send if you only took one". Which entry is free: rank is preference, not identity, and a
+  client addressed by its weakest digest ranks the others above it. A push that resolves to nothing
+  creates the record under `document`. At most 8 entries, no repeated `type`, `type` matching
   `[a-z][a-z0-9-]*` (≤32 chars), `value` matching `[A-Za-z0-9][A-Za-z0-9._-]*` (≤128 chars).
   Anything else is `403` with code `2003`, including a malformed `ids`.
 - Identifiers other than the record's own become **aliases** for it, per account. An alias is
   created and never repointed, and never shadows a digest that is a document in its own right.
+- **An identifier ranked above the one that matched is not registered.** A weak match is a guess,
+  and since an alias is never repointed and nothing unlinks one, gluing the caller's stronger
+  digests to a guess makes a wrong one permanent. Confined to the identifier that made it, a wrong
+  match ends when that identifier is corrected. A push that creates the record registers all of
+  them: the record is the caller's own.
 - **A request that names no identifiers is answered exactly as it always was**: no `match`, no
   `progress_match`, and the read follows no alias. Aliases belong to callers who opt in. Manual
   merges (`POST /api/v1/documents/merge`) are separate and still apply to every request.
