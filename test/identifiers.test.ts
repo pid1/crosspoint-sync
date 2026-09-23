@@ -8,7 +8,7 @@ import type { AppEnv } from '../src/auth/middleware.js';
  * pid1/kosync-conformance (tracking koreader/koreader-sync-server#55).
  *
  * The three copies are the worked example from that section: `repack` shares
- * structure and metadata with `original`, `edition` shares only metadata.
+ * structure and filename with `original`, `edition` shares only the filename.
  */
 const XP = '/body/DocFragment[20]/body/p[22]';
 
@@ -17,22 +17,48 @@ const C2 = md5('repack-content');
 const C3 = md5('edition-content');
 const S1 = md5('original-structure');
 const S3 = md5('edition-structure');
-const M = md5('shared-metadata');
+const F = md5('shared-filename');
 
 const original = [
   { type: 'content', value: C1 },
   { type: 'structure', value: S1 },
-  { type: 'metadata', value: M },
+  { type: 'filename', value: F },
 ];
 const repack = [
   { type: 'content', value: C2 },
   { type: 'structure', value: S1 },
-  { type: 'metadata', value: M },
+  { type: 'filename', value: F },
 ];
 const edition = [
   { type: 'content', value: C3 },
   { type: 'structure', value: S3 },
-  { type: 'metadata', value: M },
+  { type: 'filename', value: F },
+];
+
+/**
+ * Two different books a library tagged alike, so the only identifier they share
+ * is the weakest one a client offers. The second has never been pushed.
+ */
+const MISTAGGED = md5('mistagged-filename');
+const B1 = md5('one-content');
+const B1S = md5('one-structure');
+const B2 = md5('two-content');
+const B2S = md5('two-structure');
+
+const one = [
+  { type: 'content', value: B1 },
+  { type: 'structure', value: B1S },
+  { type: 'filename', value: MISTAGGED },
+];
+const two = [
+  { type: 'content', value: B2 },
+  { type: 'structure', value: B2S },
+  { type: 'filename', value: MISTAGGED },
+];
+const retagged = [
+  { type: 'content', value: B2 },
+  { type: 'structure', value: B2S },
+  { type: 'filename', value: md5('two-filename') },
 ];
 
 type Ids = { type: string; value: string }[];
@@ -124,12 +150,12 @@ describe('multi-identifier document matching', () => {
 
   it('lets the caller order decide which identifier matches', async () => {
     const { app, headers } = await seeded();
-    const weakest = await read(app, headers, M, [
-      { type: 'metadata', value: M },
+    const weakest = await read(app, headers, F, [
+      { type: 'filename', value: F },
       { type: 'structure', value: S1 },
       { type: 'content', value: C1 },
     ]);
-    expect(await weakest.json()).toMatchObject({ document: C1, match: 'metadata' });
+    expect(await weakest.json()).toMatchObject({ document: C1, match: 'filename' });
 
     const strongest = await read(app, headers, C1, original);
     expect(await strongest.json()).toMatchObject({ document: C1, match: 'content' });
@@ -137,15 +163,15 @@ describe('multi-identifier document matching', () => {
 
   it('separates how the record was found from who wrote the position', async () => {
     const { app, headers } = await seeded();
-    // A third edition sharing only the metadata digest takes the position over.
+    // A third edition sharing only the filename digest takes the position over.
     const write = await push(app, headers, C3, edition, '/body/DocFragment[3]/body/p[9]', 0.5);
-    expect(await write.json()).toMatchObject({ document: C1, match: 'metadata' });
+    expect(await write.json()).toMatchObject({ document: C1, match: 'filename' });
 
     const res = await read(app, headers, C1, original);
     expect(await res.json()).toMatchObject({
       document: C1,
       match: 'content',
-      progress_match: 'metadata',
+      progress_match: 'filename',
       progress: '/body/DocFragment[3]/body/p[9]',
     });
   });
@@ -153,13 +179,13 @@ describe('multi-identifier document matching', () => {
   it('reports progress_match none when the reader shares nothing with the writer', async () => {
     const { app, headers } = await seeded();
     // The repack takes the position over through the structure digest, leaving
-    // a writer the metadata-only reader shares nothing with.
+    // a writer the filename-only reader shares nothing with.
     await push(app, headers, C2, [
       { type: 'content', value: C2 },
       { type: 'structure', value: S1 },
     ], '/body/p[4]', 0.4);
-    const res = await read(app, headers, M, [{ type: 'metadata', value: M }]);
-    expect(await res.json()).toMatchObject({ document: C1, match: 'metadata', progress_match: 'none' });
+    const res = await read(app, headers, F, [{ type: 'filename', value: F }]);
+    expect(await res.json()).toMatchObject({ document: C1, match: 'filename', progress_match: 'none' });
   });
 
   it('attributes a position written without identifiers to its own digest', async () => {
@@ -208,6 +234,46 @@ describe('multi-identifier document matching', () => {
     expect(await res.json()).toMatchObject({ document: other, match: 'structure' });
   });
 
+  it('registers no identifier the caller ranks above the one that matched', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    await push(app, headers, B1, one, XP, 0.8);
+    const merged = await push(app, headers, B2, two, '/body/p[1]', 0.01);
+    expect(await merged.json()).toMatchObject({ document: B1, match: 'filename' });
+
+    // The match was a guess made on the filename, so the second book's own
+    // content and structure digests are not aliases for the first book.
+    for (const ids of [
+      [{ type: 'content', value: B2 }],
+      [{ type: 'structure', value: B2S }],
+    ]) {
+      const res = await read(app, headers, ids[0].value, ids);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+    }
+  });
+
+  it('gives a wrongly matched copy its own record back once the tagging is corrected', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    await push(app, headers, B1, one, XP, 0.8);
+    await push(app, headers, B2, two, '/body/p[1]', 0.01);
+
+    const corrected = await push(app, headers, B2, retagged, '/body/p[4]', 0.05);
+    expect(await corrected.json()).toMatchObject({ document: B2, match: 'content' });
+    const res = await read(app, headers, B2, retagged);
+    expect(await res.json()).toMatchObject({
+      document: B2,
+      progress: '/body/p[4]',
+      percentage: 0.05,
+    });
+
+    // What the rule recovers is the separation, not the position the wrong
+    // match overwrote on the first book.
+    const first = await read(app, headers, B1, one);
+    expect(await first.json()).toMatchObject({ document: B1, progress: '/body/p[1]' });
+  });
+
   it('returns 200 with an empty body for a book unknown under every identifier', async () => {
     const { app, headers } = await seeded();
     const unknown = md5('never-seen');
@@ -227,14 +293,33 @@ describe('multi-identifier document matching', () => {
     expect(await res.json()).toEqual({});
   });
 
-  it('rejects a list that does not open with the document', async () => {
+  it('rejects a list that names the document nowhere', async () => {
     const { app, headers } = await seeded();
-    const write = await push(app, headers, C1, [...original].reverse(), XP);
+    const write = await push(app, headers, C1, [{ type: 'structure', value: S1 }], XP);
     expect(write.status).toBe(403);
     expect(await write.json()).toMatchObject({ code: 2003 });
     const res = await read(app, headers, C1, [{ type: 'structure', value: S1 }]);
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: 2003 });
+  });
+
+  it('creates the record under the document wherever the list ranks it', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    // KOReader set to match documents by filename: the digest it is addressed
+    // by is the weakest thing it knows, and it ranks the others above it.
+    const write = await push(app, headers, F, original, XP);
+    expect(write.status).toBe(200);
+    expect(await write.json()).toMatchObject({ document: F, match: 'filename' });
+
+    // A client naming no identifiers reaches the record it is addressed by.
+    const plain = await read(app, headers, F, null);
+    expect((await plain.json()).progress).toBe(XP);
+
+    // The record is the caller's own, so the digests it ranked above the
+    // filename are aliases for it and the next read matches on the strongest.
+    const matched = await read(app, headers, F, original);
+    expect(await matched.json()).toMatchObject({ document: F, match: 'content' });
   });
 
   it('caps a list at eight entries', async () => {

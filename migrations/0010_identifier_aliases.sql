@@ -1,6 +1,6 @@
 -- Optional multi-identifier document matching, tracking
 -- koreader/koreader-sync-server#55 (open, unmerged). A client offers several
--- digests for one book - content, structure, metadata - so a recompressed or
+-- digests for one book - content, structure, filename - so a recompressed or
 -- re-downloaded copy keeps its position. Identifiers other than the record's
 -- own digest become aliases for it.
 --

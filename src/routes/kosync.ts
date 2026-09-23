@@ -15,12 +15,14 @@ import { resolveDocument } from '../models/merge.js';
 import {
   commonIdentifier,
   decodeList,
+  documentType,
   encodeList,
   parseList,
   parseQuery,
   registerAliases,
   resolveIdentifiers,
   type Identifier,
+  type IdentifierMatch,
 } from '../models/identifiers.js';
 import { nowSeconds } from '../models/sync.js';
 import { fanOutProgress } from '../connectors/fanout.js';
@@ -261,17 +263,20 @@ export function parseProgressBody(
 
 /**
  * The identifiers a request offered: null when it named none, `'invalid'` when
- * the list is malformed or does not open with the document itself.
+ * the list is malformed or names the document nowhere.
  *
- * The first entry has to be `document` so that it keeps meaning "the identifier
- * I would send if you only took one", and an old client and a new one
- * addressing the same file address the same record. A malformed list is an
+ * One entry has to be `document` so that it keeps meaning "the identifier I
+ * would send if you only took one", and an old client and a new one addressing
+ * the same file address the same record. Which entry is free: rank is the
+ * caller's preference, not the record's identity, and a client addressed by its
+ * weakest digest - KOReader matching documents by filename - would otherwise
+ * have to offer that one first and be matched on it. A malformed list is an
  * error rather than a fall back to "none named", which would answer a matching
  * request with an unmatched body.
  */
 function readIdentifiers(list: Identifier[] | null, document: string): Identifier[] | null | 'invalid' {
   if (list === null) return 'invalid';
-  return list[0].value === document ? list : 'invalid';
+  return documentType(list, document) === undefined ? 'invalid' : list;
 }
 
 export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRefresh = async () => {}): Hono<AppEnv> {
@@ -339,15 +344,16 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
     if (identifiers === 'invalid') {
       return kosyncError(c, 403, 2003, 'Invalid request');
     }
+    let hit: IdentifierMatch | null = null;
     let match: string | undefined;
     if (identifiers) {
       // A copy sharing an identifier with a record this account already holds
-      // writes to that record; otherwise this push creates one under its own
-      // digest, which is the first identifier.
-      const hit = resolveIdentifiers(db, user.id, identifiers);
+      // writes to that record; otherwise this push creates one under `document`,
+      // where a client that names no identifiers can still reach it.
+      hit = resolveIdentifiers(db, user.id, identifiers);
       parsed.record.document = hit?.document ?? resolveDocument(db, user.id, clientDocument);
       parsed.record.identifiers = encodeList(identifiers);
-      match = hit?.type ?? identifiers[0].type;
+      match = hit?.type ?? documentType(identifiers, clientDocument);
     } else {
       // A merged document stores under its canonical hash; echo the client's
       // own hash back so the device recognizes the response.
@@ -367,7 +373,15 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
     );
     fanOutProgress(db, user.id, parsed.record.document, parsed.record.percentage, parsed.record.updatedAt, parsed.record.progress, parsed.record.position);
     if (identifiers) {
-      registerAliases(db, user.id, identifiers, parsed.record.document, parsed.record.updatedAt);
+      // Only from the match down. A match on a weak identifier is a guess, and
+      // an alias is created once and never repointed, so registering a digest
+      // the caller ranks above it would glue this copy to another book's record
+      // for good - two books a library tagged alike share only their weakest
+      // identifier. Confined to the identifier that made it, a wrong guess ends
+      // when that identifier is corrected. A create is the caller's own record,
+      // so every identifier it offers describes it.
+      const fromMatch = hit ? identifiers.slice(hit.index) : identifiers;
+      registerAliases(db, user.id, fromMatch, parsed.record.document, parsed.record.updatedAt);
       // The canonical digest, so the next request can address the record
       // directly. No progress_match on a write: the writer is this request.
       return c.json({ document: parsed.record.document, match, timestamp: parsed.record.updatedAt });
