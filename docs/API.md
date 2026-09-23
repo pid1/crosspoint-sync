@@ -173,7 +173,7 @@ server matches on the first one it recognises.
   "identifiers": [
     {"type": "content",   "value": "<content digest>"},
     {"type": "structure", "value": "<structure digest>"},
-    {"type": "filename",  "value": "<filename digest>"}
+    {"type": "filename",  "value": "<filename digest>", "weak": true}
   ],
   "progress": "/body/DocFragment[20]/body/p[22]", "percentage": 0.32, "device": "kpw"
 }
@@ -211,11 +211,20 @@ GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,filename:<f>
   Anything else is `403` with code `2003`, including a malformed `ids`.
 - Identifiers other than the record's own become **aliases** for it, per account. An alias is
   created and never repointed, and never shadows a digest that is a document in its own right.
+- **`"weak": true` marks an identifier as not enough to claim an existing record.** A push whose
+  walk stops on a weak entry writes under its own `document`, creating it if absent, and answers
+  with that digest and the type of the entry naming it - exactly as a create does. A strong entry
+  adopts as always. So a copy sharing only a weak identifier is shown the other copy's position and
+  keeps a record of its own, and two works a library tagged alike cannot merge. Mark as weak any
+  identifier that can match a different work; a `weak` that is not a boolean is `403` with code
+  `2003`, and `false` means strong. The flag is a PUT body field only: adoption is a property of a
+  write, so `ids` has no equivalent and a weak identifier resolves a read like any other, with
+  `progress_match` saying what the position is worth.
 - **An identifier ranked above the one that matched is not registered.** A weak match is a guess,
   and since an alias is never repointed and nothing unlinks one, gluing the caller's stronger
   digests to a guess makes a wrong one permanent. Confined to the identifier that made it, a wrong
-  match ends when that identifier is corrected. A push that creates the record registers all of
-  them: the record is the caller's own.
+  match ends when that identifier is corrected. A push that adopts nothing registers all of them:
+  the record is the caller's own, whether it created it or wrote to it again.
 - **A request that names no identifiers is answered exactly as it always was**: no `match`, no
   `progress_match`, and the read follows no alias. Aliases belong to callers who opt in. Manual
   merges (`POST /api/v1/documents/merge`) are separate and still apply to every request.

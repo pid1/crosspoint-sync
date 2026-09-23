@@ -344,16 +344,23 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
     if (identifiers === 'invalid') {
       return kosyncError(c, 403, 2003, 'Invalid request');
     }
-    let hit: IdentifierMatch | null = null;
+    let adopted: IdentifierMatch | null = null;
     let match: string | undefined;
     if (identifiers) {
       // A copy sharing an identifier with a record this account already holds
-      // writes to that record; otherwise this push creates one under `document`,
-      // where a client that names no identifiers can still reach it.
-      hit = resolveIdentifiers(db, user.id, identifiers);
-      parsed.record.document = hit?.document ?? resolveDocument(db, user.id, clientDocument);
+      // writes to that record, unless the walk stopped on an entry the caller
+      // marked weak: an identifier that can name a different work seeds this
+      // reader with where the other copy got to and stops there. Either way the
+      // push creates a record under `document`, where a client that names no
+      // identifiers can still reach it, so two works a library tagged alike
+      // stay two records and neither overwrites the other.
+      const hit = resolveIdentifiers(db, user.id, identifiers);
+      adopted = hit !== null && identifiers[hit.index]?.weak !== true ? hit : null;
+      parsed.record.document = adopted
+        ? adopted.document
+        : resolveDocument(db, user.id, clientDocument);
       parsed.record.identifiers = encodeList(identifiers);
-      match = hit?.type ?? documentType(identifiers, clientDocument);
+      match = adopted ? adopted.type : documentType(identifiers, clientDocument);
     } else {
       // A merged document stores under its canonical hash; echo the client's
       // own hash back so the device recognizes the response.
@@ -378,10 +385,12 @@ export function kosyncRoutes(db: DB, config: Config, refreshProgress: ProgressRe
       // the caller ranks above it would glue this copy to another book's record
       // for good - two books a library tagged alike share only their weakest
       // identifier. Confined to the identifier that made it, a wrong guess ends
-      // when that identifier is corrected. A create is the caller's own record,
-      // so every identifier it offers describes it.
-      const fromMatch = hit ? identifiers.slice(hit.index) : identifiers;
-      registerAliases(db, user.id, fromMatch, parsed.record.document, parsed.record.updatedAt);
+      // when that identifier is corrected. A push that adopts nothing wrote its
+      // own record, so every identifier it offered describes it and all of them
+      // are registered; the weak value among them resolves elsewhere already
+      // and keeps doing so.
+      const own = adopted ? identifiers.slice(adopted.index) : identifiers;
+      registerAliases(db, user.id, own, parsed.record.document, parsed.record.updatedAt);
       // The canonical digest, so the next request can address the record
       // directly. No progress_match on a write: the writer is this request.
       return c.json({ document: parsed.record.document, match, timestamp: parsed.record.updatedAt });
