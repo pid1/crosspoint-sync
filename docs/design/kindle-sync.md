@@ -128,9 +128,13 @@ page". Consequences:
   attribute is logged for diagnosis. Reliable v1 mapping is for positions reported by
   Kindle apps/Android-identity devices; physical-Kindle KF8 positions need a KF8 ruler
   (register a modern-Kindle identity or Calibre-proxy mapping) — see Open questions.
-- **FRL semantics.** Positions only move forward. A user re-reading an earlier chapter
-  on the Kindle produces no inbound change. This is Amazon's model, not a bug; the
-  design doc for merge rules ("newest wins") already tolerates it.
+- **FRL semantics.** Positions only move forward — a user re-reading an earlier chapter
+  on the Kindle produces no inbound change. Kindle annotations are also frequently
+  **undated** (no `annotation_time_utc`), so timestamp ordering alone can't merge them.
+  The fan-in merge rule is therefore `furthestReadOnly`: a Kindle change applies only
+  when it *advances* the canonical position (a lower-or-equal value is always stale —
+  FRL can't be behind when you've read further anywhere). Dated annotations keep
+  newest-wins on top of that.
 
 ## Write path (the spike — NOT built)
 

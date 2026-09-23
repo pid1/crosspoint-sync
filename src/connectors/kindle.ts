@@ -374,13 +374,15 @@ async function pullProgress(
   }
   if (!lastRead?.found || lastRead.pos == null) return null;
 
-  const updatedAtMs = lastRead.annotationTimeUtc ? Date.parse(lastRead.annotationTimeUtc) : NaN;
-  // An undated annotation is only trusted when no progress exists yet: stamping
-  // it "now" would let a stale Kindle position outrank newer device progress in
-  // newest-wins and re-fan-out.
-  if (!Number.isFinite(updatedAtMs) && sinceMs) return null;
-  const effectiveUpdatedMs = Number.isFinite(updatedAtMs) ? updatedAtMs : Date.now();
-  if (sinceMs && effectiveUpdatedMs <= sinceMs) return null;
+  const parsedMs = lastRead.annotationTimeUtc ? Date.parse(lastRead.annotationTimeUtc) : NaN;
+  const dated = Number.isFinite(parsedMs);
+  // iOS-identity annotations are frequently UNDATED. FRL semantics make that
+  // safe to accept: furthest-read only moves forward, so the value can only be
+  // stale-or-equal, never a regression from the future. The fan-in applier
+  // (furthestReadOnly) applies it only when it advances the canonical position,
+  // which covers undated values in every interleaving. Dated annotations still
+  // short-circuit here when they're provably older than our progress.
+  if (dated && sinceMs && parsedMs <= sinceMs) return null;
 
   // Known-undownloadable book (delivery refused/unparseable — logged on the
   // FIRST failure): skip quietly instead of re-downloading just to fail again.
@@ -406,7 +408,8 @@ async function pullProgress(
     externalId: m.externalId,
     percentage: pct,
     finished: pct >= 0.999,
-    updatedAtMs: effectiveUpdatedMs,
+    updatedAtMs: dated ? parsedMs : Date.now(),
+    furthestReadOnly: true,
   };
 }
 

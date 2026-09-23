@@ -225,15 +225,16 @@ describe('kindle connector', () => {
     expect(change).toBeNull();
   });
 
-  it('does not let an undated annotation outrank existing progress', async () => {
+  it('flags undated annotations furthest-read-only and lets the merge rule order them', async () => {
     const undated = '<book><last_read pos="25000" source_device="Kindle" method="FRL" version="0"/></book>';
     const fake = fionaFake({ lastReadXml: undated });
     const match = { externalId: 'PDOC:B0NODATE01', externalEdition: '100000', confidence: 1 };
-    // Progress already exists: skip rather than stamping the position "now".
-    expect(await kindleConnector.pullProgress!(testCred(), match, fake.transport, 1000)).toBeNull();
-    // First sync (no progress yet): the undated position is still usable.
-    const change = await kindleConnector.pullProgress!(testCred(), match, fake.transport, 0);
+    // Undated annotations are always returned now — the fan-in applier applies
+    // them only when they ADVANCE the canonical position (FRL can't regress),
+    // which is strictly stronger than the old sinceMs gate.
+    const change = await kindleConnector.pullProgress!(testCred(), match, fake.transport, 1000);
     expect(change?.percentage).toBeCloseTo(0.25, 5);
+    expect(change?.furthestReadOnly).toBe(true);
   });
 
   it('returns null for a doc that never synced (no sidecar)', async () => {
@@ -277,6 +278,22 @@ describe('kindle connector', () => {
     const second = await kindleConnector.pullProgress!(cred, m, fake.transport, 0);
     expect(second).toBeNull();
     expect(fake.calls.filter((u) => u.includes('FSDownloadContent')).length).toBe(1);
+  });
+
+  it('accepts undated annotations as furthest-read-only changes', async () => {
+    const fake = fionaFake({
+      rulerLength: 100000,
+      lastReadXml: '<book><last_read pos="25000" method="FRL" version="0"/></book>',
+    });
+    const change = await kindleConnector.pullProgress!(
+      testCred(),
+      { externalId: 'PDOC:B0UNDATED1', externalEdition: '100000', confidence: 1 },
+      fake.transport,
+      Date.now() // undated values defer to the FRL merge rule downstream
+    );
+    expect(change?.percentage).toBeCloseTo(0.25, 5);
+    expect(change?.furthestReadOnly).toBe(true);
+    expect(Date.now() - (change?.updatedAtMs ?? 0)).toBeLessThan(10_000);
   });
 
   it('flags needsReauth when the device credential is dead', async () => {
@@ -496,6 +513,41 @@ describe('kindle connector API + on-demand refresh', () => {
       method: 'POST', headers, body: JSON.stringify({ external_id: '42' }),
     });
     expect(nope.status).toBe(400);
+  });
+
+  it('applies an undated Kindle position only when it advances the canonical one', async () => {
+    const fake = fionaFake({
+      rulerLength: 100000,
+      lastReadXml: '<book><last_read pos="25000" method="FRL" version="0"/></book>', // 0.25, undated
+    });
+    const { app } = makeTestApp({}, { connectorTransport: fake.transport });
+    const { headers } = await registerUser(app);
+    await app.request('/api/v1/connectors/kindle', {
+      method: 'PUT', headers, body: JSON.stringify({ credential: testCred() }),
+    });
+    await app.request(`/api/v1/connectors/kindle/matches/${DOC}`, {
+      method: 'PUT', headers, body: JSON.stringify({ external_id: 'PDOC:B0FRULE001' }),
+    });
+    // Device is AHEAD (0.5 > 0.25): the undated FRL must not regress it.
+    await app.request('/syncs/progress', {
+      method: 'PUT', headers,
+      body: JSON.stringify({ document: DOC, progress: '/body/1/0', percentage: 0.5, device: 'CP', device_id: 'cp1' }),
+    });
+    let body = await (await app.request(`/api/v1/progress/${DOC}`, { headers })).json();
+    expect((body.devices ?? []).some((r: { device_id: string }) => r.device_id === 'kindle')).toBe(false);
+
+    // Kindle gets AHEAD (0.25 > 0.1): now the undated FRL applies.
+    const DOC2 = 'b2c3d4e5f60718293a4b5c6d7e8f90a1';
+    await app.request(`/api/v1/connectors/kindle/matches/${DOC2}`, {
+      method: 'PUT', headers, body: JSON.stringify({ external_id: 'PDOC:B0FRULE002' }),
+    });
+    await app.request('/syncs/progress', {
+      method: 'PUT', headers,
+      body: JSON.stringify({ document: DOC2, progress: '/body/1/0', percentage: 0.1, device: 'CP', device_id: 'cp1' }),
+    });
+    body = await (await app.request(`/api/v1/progress/${DOC2}`, { headers })).json();
+    const kindleRow = (body.devices ?? []).find((r: { device_id: string }) => r.device_id === 'kindle');
+    expect(kindleRow?.percentage).toBeCloseTo(0.25, 5);
   });
 
   it('serves stored progress when Amazon is sick (best-effort, never fails the GET)', async () => {

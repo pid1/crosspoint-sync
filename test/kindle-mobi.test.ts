@@ -81,14 +81,15 @@ describe('palmDocTextLength', () => {
     expect(palmDocTextLength(mobi)).toBe(9);
   });
 
-  it('rejects HUFF/CDIC compression', () => {
-    const mobi = makeMobi({ compression: 17480, textRecords: [Buffer.from('x')] });
-    expect(() => palmDocTextLength(mobi)).toThrow(/HUFF\/CDIC/);
+  it('trusts the declared length for HUFF/CDIC (position space, no decompression)', () => {
+    const mobi = makeMobi({ compression: 17480, textRecords: [Buffer.from('x')], declaredTextLength: 45055 });
+    expect(palmDocTextLength(mobi)).toBe(45055);
   });
 
-  it('rejects DRM-encrypted content', () => {
-    const mobi = makeMobi({ compression: 2, encryption: 2, textRecords: [Buffer.from([0x41])], declaredTextLength: 1 });
-    expect(() => palmDocTextLength(mobi)).toThrow(/DRM/);
+  it('trusts the declared length for DRM-encrypted content (store purchases)', () => {
+    // Live-verified against a DRM'd store book: pos values fit this declared length.
+    const mobi = makeMobi({ compression: 2, encryption: 2, textRecords: [Buffer.from([0x41])], declaredTextLength: 45055 });
+    expect(palmDocTextLength(mobi)).toBe(45055);
   });
 
   it('rejects when the decompressed length diverges wildly from the header', () => {

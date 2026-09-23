@@ -15,7 +15,7 @@ import {
 } from './lib.mjs';
 
 const FIRS = 'https://firs-ta-g7g.amazon.com';
-const DEVICE_TYPE = 'A3VNNDO1I14V03'; // Kindle for Android Phone
+const DEVICE_TYPE = 'A2CZJZGLK2JJVM'; // Kindle for iPad (legacy iOS) — Amazon still delivers modern purchases to this identity
 const SOFTWARE_VERSION = '1221328936';
 export const DEVICE_NAME = 'CrossPoint Sync';
 

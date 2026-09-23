@@ -26,7 +26,7 @@ export const FIONA_HOSTS = {
 } as const;
 
 /** The Android-app device identity we register as (same as the reference probes). */
-const DEVICE_TYPE = 'A3VNNDO1I14V03';
+const DEVICE_TYPE = 'A2CZJZGLK2JJVM'; // Kindle for iPad (legacy iOS) — delivery-unlocked
 const SOFTWARE_VERSION = '1221328936';
 const REGISTRATION_UA = 'Dalvik/2.1.0 (Linux; U; Android 5.0; Nexus 1)';
 const SIGNED_UA = 'Dalvik/1.2.0';
@@ -60,8 +60,16 @@ export function signingDate(now = new Date()): string {
 }
 
 function fionaPrivateKey(privateKeyB64: string): crypto.KeyObject {
-  const der = Buffer.from(privateKeyB64.replace(/\s/g, ''), 'base64');
-  return crypto.createPrivateKey({ key: der, format: 'der', type: 'pkcs8' });
+  const clean = privateKeyB64.replace(/\s/g, '');
+  if (clean.includes('-----BEGIN')) return crypto.createPrivateKey(privateKeyB64); // PEM
+  const der = Buffer.from(clean, 'base64');
+  // Android registrations return PKCS#8; iOS registrations return PKCS#1.
+  for (const type of ['pkcs8', 'pkcs1'] as const) {
+    try {
+      return crypto.createPrivateKey({ key: der, format: 'der', type });
+    } catch { /* try the next container */ }
+  }
+  throw new FionaError('unparseable device private key', null);
 }
 
 /**

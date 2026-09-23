@@ -83,22 +83,25 @@ function readPalmDocHeader(buf: Buffer): PalmDocInfo {
 }
 
 /**
- * Total decompressed length (bytes) of the book's text records. This is the
- * position space Whispersync `pos` offsets index into for MOBI7 deliveries.
- * Throws MobiError on DRM-free-but-unsupported compressions (HUFF/CDIC) and on
- * DRM'd files (old store encryption); PDOCs from Send-to-Kindle are neither.
+ * Total decompressed length (bytes) of the book's text records — the position
+ * space Whispersync `pos` offsets index into.
+ *
+ * DRM'd store purchases and HUFF/CDIC files can't be decompressed here, but
+ * they don't need to be: the PalmDOC header's DECLARED text length is that same
+ * decompressed-text position space (live-verified 2026-09-23 against a
+ * DRM'd store purchase: pos 9880 of 45 055 = a sane 21.9%). Only files we can
+ * actually decompress get the cross-check.
  */
 export function palmDocTextLength(buf: Buffer): number {
   const info = readPalmDocHeader(buf);
   if (info.compression === COMPRESSION_NONE) return info.textLength;
-  if (info.compression === COMPRESSION_HUFF_CDIC) {
-    throw new MobiError('HUFF/CDIC compression is not supported');
-  }
+  if (info.textLength <= 0) throw new MobiError('header declares no text length');
+  if (info.compression === COMPRESSION_HUFF_CDIC) return info.textLength;
   if (info.compression !== COMPRESSION_PALMDOC) {
     throw new MobiError(`unsupported compression type ${info.compression}`);
   }
   const encryption = buf.readUInt16BE(info.recordOffsets[0] + 12);
-  if (encryption !== 0) throw new MobiError('DRM-encrypted content is not supported');
+  if (encryption !== 0) return info.textLength; // DRM'd: trust the declared length
 
   let total = 0;
   const textRecords = Math.min(info.recordCount, info.recordOffsets.length - 1);
@@ -110,7 +113,7 @@ export function palmDocTextLength(buf: Buffer): number {
   }
   // Cross-check against the header's declared text length; a large divergence
   // means the file is not what we think it is.
-  if (info.textLength > 0 && Math.abs(total - info.textLength) > Math.max(4096, info.textLength * 0.01)) {
+  if (Math.abs(total - info.textLength) > Math.max(4096, info.textLength * 0.01)) {
     throw new MobiError(`decompressed length ${total} diverges from header ${info.textLength}`);
   }
   return total;

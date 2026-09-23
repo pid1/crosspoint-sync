@@ -68,6 +68,13 @@ export interface InboundChange {
   progress?: string;
   /** Source last-update timestamp, ms epoch — used as the poll cursor. */
   updatedAtMs: number;
+  /**
+   * The source only reports a FURTHEST-read location (Kindle FRL), possibly
+   * without a trustworthy timestamp. The fan-in applier must apply it only when
+   * it ADVANCES the canonical position — furthest-read can't be ahead of a
+   * higher value from anywhere else, so a lower-or-equal value is always stale.
+   */
+  furthestReadOnly?: boolean;
 }
 
 /** A canonical reading event to fan out to a connector. */
