@@ -578,9 +578,9 @@ const TOKEN_HELP = {
     + '<li>Open <code>chrome://extensions</code> and turn on <b>Developer mode</b>.</li>'
     + '<li>Choose <b>Load unpacked</b> and select the unzipped folder.</li>'
     + '<li>Click the extension icon: connect it to this server (the same username and password as this dashboard), then register with Amazon — Amazon emails a one-time code.</li>'
-    + '<li>The extension opens your Amazon <b>Manage Your Content</b> tab once to read your Send-to-Kindle library. That\u2019s it — reading on your Kindle now syncs here.</li>'
+    + '<li>That\u2019s it — reading on your Kindle now syncs here. Purchased books match by title automatically; for Send-to-Kindle docs, paste the ASIN (from Manage Your Content &amp; Devices) on the match page.</li>'
     + '</ol>'
-    + '<p><b>Caution — experimental and unofficial.</b> This connector uses Amazon\u2019s private device-sync protocol. It is not an official API and is technically against Amazon\u2019s Terms of Service; use it only with your own account and books, at your own risk. Your Amazon password is used once, inside your own browser, and never reaches this server. The extension registers a device named <b>CrossPoint Sync</b> in your Amazon account — deregister it in Manage Your Content &amp; Devices to revoke access instantly.</p>'
+    + '<p><b>Caution — experimental and unofficial.</b> This connector uses Amazon\u2019s private device-sync protocol. It is not an official API and is technically against Amazon\u2019s Terms of Service; use it only with your own account and books, at your own risk. Your Amazon password is used once, inside your own browser, and never reaches this server. The extension registers a new device in your Amazon account (Amazon names it something like <b>&ldquo;Android Phone&rdquo;</b>, ignoring the name we request) — deregister it in Manage Your Content &amp; Devices to revoke access instantly.</p>'
     + '<p style="margin-bottom:0">Advanced: if you already hold a device credential JSON, paste it below instead of using the extension.</p></div>'
 };
 
@@ -913,7 +913,7 @@ const KINDLE = shell(
    <div class="card" style="margin-top:18px">
      <h3 style="margin-top:0">Caution — experimental and unofficial</h3>
      <p>This connector uses Amazon&rsquo;s private device-sync protocol. It is not an official API and is technically against Amazon&rsquo;s Terms of Service; use it only with your own account and books, at your own risk.</p>
-     <p style="margin-bottom:0">Your Amazon password is used once, inside your own browser, and never reaches this server. The setup registers a device named <b>CrossPoint Sync</b> in your Amazon account — deregister it in Manage Your Content &amp; Devices to revoke access instantly.</p>
+     <p style="margin-bottom:0">Your Amazon password is used once, inside your own browser, and never reaches this server. The setup registers a new device in your Amazon account (Amazon names it something like <b>&ldquo;Android Phone&rdquo;</b>, ignoring the name we request) — deregister it in Manage Your Content &amp; Devices to revoke access instantly.</p>
    </div>
    <div class="card">
      <div class="step"><div class="n">1</div><div>
@@ -924,7 +924,7 @@ const KINDLE = shell(
        <p>Open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, choose <b>Load unpacked</b> and select the unzipped folder.</p></div></div>
      <div class="step"><div class="n">3</div><div>
        <h3>Connect and register</h3>
-       <p>Click the extension icon: connect it to this server (the same username and password as this dashboard), then register with Amazon — Amazon emails a one-time code. The extension opens your Manage Your Content tab once to read your Send-to-Kindle library.</p></div></div>
+       <p>Click the extension icon: connect it to this server (the same username and password as this dashboard), then register with Amazon — Amazon emails a one-time code.</p></div></div>
      <div class="step"><div class="n">4</div><div>
        <h3>Read</h3>
        <p>Kindle positions flow into CrossPoint Sync automatically when your devices sync. Use the match page to fix a book by ASIN if a title doesn&rsquo;t line up.</p></div></div>

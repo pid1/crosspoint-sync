@@ -199,11 +199,14 @@ export async function registerDevice(
     signal: AbortSignal.timeout(30_000),
   });
   const text = await res.text();
-  // GATE (observed 2026): the OTP challenge is a 401 whose body still says
-  // <customer_not_found>, identical to a wrong-password 401. The only signal
-  // distinguishing them is whether the OTP email arrives, so a 401 is always
-  // "check your email; no email means the password was wrong".
-  if (res.status === 401) return { status: 'otp_required', deviceSerial };
+  // GATE (observed 2026): the OTP challenge is signaled by <customer_not_found>/
+  // <error_code>401</error_code> in the BODY; the HTTP status varies (not always
+  // 401). The same body also means wrong password; the only distinguishing signal
+  // is whether the OTP email arrives, so this is always "check your email; no
+  // email means the password was wrong".
+  if (res.status === 401 || text.includes('customer_not_found') || /<error_code>\s*401/.test(text)) {
+    return { status: 'otp_required', deviceSerial };
+  }
   if (res.status < 200 || res.status >= 300) {
     const preview = text.replace(/\s+/g, ' ').trim().slice(0, 300);
     throw new FionaError(`registerDevice -> HTTP ${res.status}${preview ? `: ${preview}` : ''}`, res.status);

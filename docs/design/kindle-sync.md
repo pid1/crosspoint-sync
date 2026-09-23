@@ -71,9 +71,10 @@ Properties that make this path viable for us:
    never be enabled on the hosted multi-user service.
 2. **Credential at rest = password-equivalent.** Encrypted, never logged, redacted in
    errors — same posture as the rest of the vault. The account label is the device name
-   ("CrossPoint Sync"), not the user's email.
-3. **Revocation is user-controlled and total:** deregistering the "CrossPoint Sync"
-   device in Amazon's Manage Your Content & Devices kills the credential; unlinking the
+   as Amazon reports it (Amazon ignores the requested "CrossPoint Sync" and assigns
+   something like "Justin's Android Phone", observed 2026-09), not the user's email.
+3. **Revocation is user-controlled and total:** deregistering that device in
+   Amazon's Manage Your Content & Devices kills the credential; unlinking the
    connector wipes the credential, matches, and queue rows (existing framework behavior).
 4. **Request discipline.** No background polling: fan-in is **on-demand only**, triggered
    when a device asks us for progress on a matched book (the same pattern as the
@@ -93,9 +94,10 @@ Properties that make this path viable for us:
   `carries: ['progress']`, `credentialKind: 'token'` (the extension uploads the
   credential JSON; the dashboard's generic paste box also accepts it).
 - **Credential JSON:** `{ adp_token, private_key, device_serial, device_name, library? }`
-  where `library` is the extension-captured `[{ asin, title, author, type }]` **PDOC**
-  snapshot. Purchased books are not in it — the server enumerates those itself.
-- **Matching:** candidates are the uploaded PDOC snapshot plus the server-side EBOK
+  where `library` is an optional `[{ asin, title, author, type }]` **PDOC** snapshot
+  (advanced: only via a pasted credential JSON; the extension no longer captures one).
+  Purchased books are not in it — the server enumerates those itself.
+- **Matching:** candidates are the optional PDOC snapshot plus the server-side EBOK
   list (signed `syncMetaData`, 15-minute cache keyed by device serial). Matching is
   **on-demand**: the first time a device asks for progress on an unmatched document
   with metadata, the refresh path resolves the match right there (local scoring, no
@@ -160,21 +162,19 @@ finicky. Set expectations accordingly.
 CrossPoint Kindle Link (Chrome MV3) is **auth-only**. The server is the registered
 "Android device": it holds the ADP credential and makes every signed Fiona/CDE call
 itself (validation, EBOK library, sidecars, positions). The extension exists only for
-the two things that cannot leave the user's browser:
+the one thing that cannot leave the user's browser:
 
 1. **Registration** — the background worker POSTs `FirsProxy/registerDevice`
    (password used for the two registration calls only, never stored), handles the
    emailed-OTP round trip, and uploads the scoped ADP credential. The server then
    owns it entirely.
-2. **The MYCD personal-document list** — a **content script on the
-   Manage-Your-Content page** performs the `GetContentOwnershipData` fetch in the
-   page's own context (same-origin, the page's cookies and Sec-Fetch headers),
-   paginating 100/page. This is the only context Amazon's WAF accepts: a plain
-   out-of-browser `fetch` with even a complete valid cookie jar gets an HTML
-   challenge, and the extension *background worker's* cross-origin POST gets the
-   same challenge (both observed 2026-09). The worker opens/reuses the user's MYCD
-   tab and retries while it loads or while the user logs in. Runs after
-   registration and on "Sync library now" — there is no scheduled refresh anywhere.
+
+It deliberately does NOT capture the MYCD personal-document list. That is only
+reachable in the MYCD page's own context (Amazon's WAF challenges any other origin,
+observed 2026-09), which would mean a content script on the user's Amazon tab for a
+list that only saves pasting an ASIN per sideloaded doc. Send-to-Kindle docs are
+matched manually instead: paste the ASIN from Manage Your Content & Devices on the
+dashboard's match page (verified by the server's ownership probe).
 
 Everything else is server-side: credential validation (`syncMetaData`), **purchased-book
 (EBOK) enumeration** (signed `syncMetaData`), position pulls, and the position-space ruler.
@@ -198,7 +198,7 @@ multi-user/hosted installs.
 ## Live-verify checklist (before removing the experimental badge)
 
 - [ ] Extension registration on a real account (OTP round-trip, credential validates).
-- [ ] Extension library sync (MYCD PDOC list + EBOK `syncMetaData`) on a real session.
+- [ ] EBOK `syncMetaData` enumeration + manual PDOC ASIN match on a real account.
 - [ ] `syncMetaData` validation call from the server (plain fetch, no fingerprint block).
 - [ ] Sidecar GUID + `getAnnotations?filter=last_read&type=PDOC` on several real PDOCs.
 - [ ] Percentage accuracy per reporting device: Kindle for Android/iOS (expected good),
@@ -215,10 +215,8 @@ multi-user/hosted installs.
   third parties?), or fetch a KF8 conversion another way. Until solved, physical-Kindle
   KF8 positions are skipped by the guard.
 - **Library freshness.** New Amazon purchases: server-side EBOK list, refreshed on
-  match-miss (no schedule). New Send-to-Kindle docs: extension PDOC list after
-  registration or on "Sync library now". Either way the new book auto-matches on the
-  next progress GET for that document (no dashboard action). Manual ASIN entry always
-  works.
+  match-miss (no schedule); the new book auto-matches on the next progress GET for
+  that document. New Send-to-Kindle docs: manual ASIN entry on the match page.
 - **Highlights.** PDOC highlight/note sidecars are live-verified readable (MBP format);
   a `carries: ['highlight']` fan-in is a natural follow-up once position proves out.
 - Whether `getAnnotations` has rate limits at our (very low) cadence — watch

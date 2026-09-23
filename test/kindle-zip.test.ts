@@ -48,7 +48,7 @@ describe('GET /kindle-link.zip', () => {
     const entries = await unzipEntries(Buffer.from(await res.arrayBuffer()));
     const manifest = JSON.parse(entries.get('manifest.json') ?? '{}');
     expect(manifest.name).toContain('Kindle');
-    for (const f of ['background.js', 'lib.mjs', 'popup.html', 'popup.js', 'content-mycd.js']) {
+    for (const f of ['background.js', 'lib.mjs', 'popup.html', 'popup.js']) {
       expect(entries.has(f), `zip contains ${f}`).toBe(true);
     }
   });

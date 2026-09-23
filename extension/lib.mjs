@@ -1,13 +1,12 @@
 /**
  * Shared, dependency-free helpers for the CrossPoint Kindle Link extension.
- * Runs in a Manifest V3 service worker / content script (no DOM guaranteed) and
- * in Node for tests.
+ * Runs in a Manifest V3 service worker (no DOM guaranteed) and in Node for tests.
  *
  * The extension is AUTH-ONLY: it registers the device credential (unsigned
- * calls) and captures the Manage-Your-Content library list from the page's own
- * context. All signed Whispersync traffic (library of purchased books, reading
- * positions) is the SERVER's job — it holds the credential and speaks Fiona/CDE
- * itself. See docs/design/kindle-sync.md.
+ * calls) and uploads it. All signed Whispersync traffic (library of purchased
+ * books, reading positions) is the SERVER's job — it holds the credential and
+ * speaks Fiona/CDE itself. Sideloaded (Send-to-Kindle) docs are matched by
+ * pasting their ASIN on the dashboard's match page. See docs/design/kindle-sync.md.
  */
 
 export function escapeXml(v) {
@@ -55,30 +54,3 @@ export function parseRegisterResponseXml(xml) {
   return { adpToken, privateKey, deviceName: xmlField(xml, 'user_device_name') };
 }
 
-/** csrfToken from the MYCD page HTML (`var csrfToken = "…"` or window.csrfToken). */
-export function parseCsrfToken(html) {
-  const m = /(?:var\s+csrfToken|window\.csrfToken)\s*=\s*"([^"]+)"/.exec(html);
-  return m?.[1] ?? null;
-}
-
-/**
- * Normalize the GetContentOwnershipData payload into
- * { items: [{ asin, title, author, type: 'PDOC' }], total }.
- */
-export function parseOwnershipData(json) {
-  const payload = json?.GetContentOwnershipDataResponse?.ownershipData ?? json?.ownershipData ?? json;
-  const rawItems = payload?.items ?? payload?.itemList ?? [];
-  const items = [];
-  for (const it of Array.isArray(rawItems) ? rawItems : []) {
-    const asin = it?.asin ?? it?.ASIN;
-    const title = it?.title;
-    if (!asin || typeof title !== 'string' || !title) continue;
-    const author =
-      typeof it.authors === 'string' ? it.authors
-        : Array.isArray(it.authors) ? it.authors.filter(Boolean).join(', ')
-          : (typeof it.author === 'string' ? it.author : null);
-    items.push({ asin, title, author: author || null, type: 'PDOC' });
-  }
-  const total = payload?.numberOfItems ?? payload?.totalCount ?? items.length;
-  return { items, total: typeof total === 'number' ? total : items.length };
-}

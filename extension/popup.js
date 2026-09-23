@@ -10,25 +10,6 @@ function showError(msg) {
   el.hidden = false;
 }
 
-function showNote(msg) {
-  const el = $('pending');
-  if (!msg) { el.hidden = true; return; }
-  el.textContent = msg;
-  el.hidden = false;
-}
-
-/** Poll status until the library sync finishes (or an error appears), then refresh. */
-async function pollSyncOutcome(sinceMs) {
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r2) => setTimeout(r2, 2000));
-    const st = await send({ type: 'status' });
-    if (st?.lastError) { showError(st.lastError); break; }
-    if (st?.lastSync && st.lastSync >= sinceMs) break;
-  }
-  showNote(null);
-  await refresh();
-}
-
 async function guard(btn, fn) {
   btn.disabled = true;
   showError(null);
@@ -51,12 +32,14 @@ async function refresh() {
   $('connectSec').hidden = configured;
   $('registerSec').hidden = !configured || registered;
   $('statusSec').hidden = !configured || !registered;
+  // A pending Amazon registration outlives the popup: show the code form again.
+  $('regForm').hidden = !!st?.otpPending;
+  $('otpForm').hidden = !st?.otpPending;
   if (!configured) return;
   if (registered) {
     $('stDevice').textContent = st.deviceName ?? 'registered';
     $('stServer').textContent = `${st.username} @ ${st.server}`;
-    $('stLibrary').textContent = `${st.libraryCount} book(s)`;
-    $('stSync').textContent = st.lastSync ? new Date(st.lastSync).toLocaleString() : 'never';
+    $('stUpload').textContent = st.lastUpload ? new Date(st.lastUpload).toLocaleString() : 'not yet';
     if (st.lastError) showError(st.lastError);
   }
 }
@@ -66,13 +49,12 @@ $('connectBtn').addEventListener('click', (e) =>
     const server = $('server').value.trim();
     const username = $('username').value.trim();
     const password = $('password').value;
-    const region = $('region').value;
     if (!server || !username || !password) return { ok: false, error: 'fill in server, username and password' };
     // Grant host access to the user's own server (runtime optional permission).
     const origin = new URL(server.includes('://') ? server : `https://${server}`).origin;
     const granted = await chrome.permissions.request({ origins: [`${origin}/*`] });
     if (!granted) return { ok: false, error: 'permission to reach your server was declined' };
-    const r = await send({ type: 'connect', server, username, password, region });
+    const r = await send({ type: 'connect', server, username, password });
     if (r?.ok) await refresh();
     return r;
   })
@@ -83,20 +65,8 @@ $('registerBtn').addEventListener('click', (e) =>
     const email = $('email').value.trim();
     const password = $('amazonPassword').value;
     if (!email || !password) return { ok: false, error: 'enter your Amazon email and password' };
-    const before = Date.now();
     const r = await send({ type: 'register-begin', email, password });
-    if (r?.ok) {
-      if (r.otp) {
-        $('regForm').hidden = true;
-        $('otpForm').hidden = false;
-      } else {
-        await refresh(); // no OTP needed — registered
-        if (r.pending) {
-          showNote('registered — syncing your library in the Amazon tab…');
-          await pollSyncOutcome(before);
-        }
-      }
-    }
+    if (r?.ok) await refresh(); // shows the code form (otp pending) or the linked status
     return r;
   })
 );
@@ -104,28 +74,17 @@ $('registerBtn').addEventListener('click', (e) =>
 $('otpBtn').addEventListener('click', (e) =>
   guard(e.target, async () => {
     const code = $('otp').value.trim();
-    if (!code) return { ok: false, error: 'enter the code from Amazon\u2019s email' };
-    const before = Date.now();
+    if (!code) return { ok: false, error: 'enter the code from Amazon’s email' };
     const r = await send({ type: 'register-complete', code });
-    if (r?.ok) {
-      await refresh();
-      if (r.pending) {
-        showNote('registered — syncing your library in the Amazon tab…');
-        await pollSyncOutcome(before);
-      }
-    }
+    if (r?.ok) await refresh();
     return r;
   })
 );
 
-$('syncBtn').addEventListener('click', (e) =>
+$('uploadBtn').addEventListener('click', (e) =>
   guard(e.target, async () => {
-    const before = Date.now();
-    const r = await send({ type: 'sync-now' });
-    if (r?.ok) {
-      showNote('syncing your library in the Amazon tab…');
-      await pollSyncOutcome(before);
-    }
+    const r = await send({ type: 'upload' });
+    if (r?.ok) await refresh();
     return r;
   })
 );

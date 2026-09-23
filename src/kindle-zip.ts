@@ -11,7 +11,7 @@ import zlib from 'node:zlib';
  */
 
 const EXT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'extension');
-const EXT_FILES = ['manifest.json', 'background.js', 'lib.mjs', 'popup.html', 'popup.js', 'content-mycd.js'];
+const EXT_FILES = ['manifest.json', 'background.js', 'lib.mjs', 'popup.html', 'popup.js'];
 
 // Fixed DOS date (2026-01-01) for reproducible archives.
 const DOS_DATE = ((2026 - 1980) << 9) | (1 << 5) | 1;

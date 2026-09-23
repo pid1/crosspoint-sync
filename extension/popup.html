@@ -39,12 +39,6 @@
     <input id="username" type="text" autocomplete="username">
     <label>Sync password</label>
     <input id="password" type="password" autocomplete="current-password">
-    <label>Amazon region</label>
-    <select id="region">
-      <option>amazon.com</option><option>amazon.co.uk</option><option>amazon.de</option>
-      <option>amazon.fr</option><option>amazon.ca</option><option>amazon.com.au</option>
-      <option>amazon.co.jp</option>
-    </select>
     <button id="connectBtn">Connect</button>
     <p class="note">Password is md5-hashed here (kosync protocol) — the server never sees it.</p>
   </section>
@@ -56,8 +50,9 @@
       <label>Amazon password</label>
       <input id="amazonPassword" type="password">
       <button id="registerBtn">Register Kindle device</button>
-      <p class="note">Used once to register a device named <b>CrossPoint Sync</b> with Amazon.
-        Never stored, never leaves this browser. Amazon will email you a code.</p>
+      <p class="note">Used once to register a new device with Amazon (it appears in your account as
+        something like &ldquo;Android Phone&rdquo;). Never stored, never leaves this browser.
+        Amazon will email you a code.</p>
     </div>
     <div id="otpForm" hidden>
       <label>Code from Amazon's email</label>
@@ -71,12 +66,11 @@
   <section id="statusSec" hidden>
     <div class="row"><span class="k">Device</span><span id="stDevice" class="ok"></span></div>
     <div class="row"><span class="k">Server</span><span id="stServer"></span></div>
-    <div class="row"><span class="k">Library</span><span id="stLibrary"></span></div>
-    <div class="row"><span class="k">Last sync</span><span id="stSync"></span></div>
-    <button id="syncBtn">Sync library now</button>
+    <div class="row"><span class="k">Uploaded</span><span id="stUpload"></span></div>
+    <button id="uploadBtn">Re-upload to server</button>
     <button id="unlinkBtn" class="secondary">Remove Kindle link</button>
-    <p class="note">Reading on your Kindle now flows into crosspoint-sync. Books are matched by
-      title; fix any match in the server dashboard by pasting an ASIN.</p>
+    <p class="note">Reading on your Kindle now flows into crosspoint-sync. Purchased books match by
+      title automatically; for Send-to-Kindle docs, paste the ASIN on the server's match page.</p>
   </section>
 
   <div id="pending" class="note" hidden></div>

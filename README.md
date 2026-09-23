@@ -81,15 +81,15 @@ device": it holds the credential and makes every signed sync call itself (librar
 Setup is the **CrossPoint Kindle Link browser extension** — download it from your own server
 (`GET /kindle-link.zip`, or the download link on the dashboard's Kindle connector page), unzip,
 and load unpacked at `chrome://extensions`. It is auth-only: it registers the device (password +
-emailed one-time code never leave the browser) and captures your Send-to-Kindle library list by
-reading your Manage Your Content tab in the page's own context — the only context Amazon's WAF
-accepts. Purchased books need nothing at all: the server enumerates them itself.
+emailed one-time code never leave the browser) and uploads the credential — nothing else.
+Purchased books need nothing at all: the server enumerates them itself. Send-to-Kindle docs are
+matched manually: paste the doc's ASIN (from Manage Your Content & Devices) on the dashboard's
+match page.
 
 Freshness, without any scheduled checks: when a book syncs from a device, it's matched against
 the known library; on a miss the server refreshes its purchased-book list once and retries, and a
 book that still doesn't match simply doesn't sync to Kindle (the normal case for books never sent
-there). New Send-to-Kindle docs arrive via the extension (right after registration, or "Sync
-library now" anytime). The dashboard's match page has a **Refresh library** button for the
+there). The dashboard's match page has a **Refresh library** button for the
 purchased-book list, and manual matching verifies a pasted ASIN against your Kindle account
 (list membership plus an ownership probe) before saving it. Positions arrive as percentages
 (Amazon's furthest-read model, forward-only). Fan-in is on-demand: it happens when a device asks

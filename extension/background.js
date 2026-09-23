@@ -3,10 +3,10 @@
  *
  * Everything Amazon-side happens here, inside the user's browser: device
  * registration (password + emailed OTP are used for two registerDevice calls and
- * never stored), the Send-to-Kindle library fetch (the user's normal Amazon
- * session cookies ride along via credentials:'include' — nothing to copy-paste),
- * and the upload to the user's crosspoint-sync server. Only the scoped ADP device
- * credential and the book list ever leave the browser.
+ * never stored) and the upload of the scoped ADP device credential to the user's
+ * crosspoint-sync server. Purchased books are enumerated by the SERVER with that
+ * credential; sideloaded (Send-to-Kindle) docs are matched by pasting their ASIN
+ * on the dashboard's match page.
  */
 
 import {
@@ -18,7 +18,6 @@ const FIRS = 'https://firs-ta-g7g.amazon.com';
 const DEVICE_TYPE = 'A3VNNDO1I14V03'; // Kindle for Android Phone
 const SOFTWARE_VERSION = '1124597795';
 export const DEVICE_NAME = 'CrossPoint Sync';
-const REGIONS = ['amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.fr', 'amazon.ca', 'amazon.com.au', 'amazon.co.jp'];
 
 const store = {
   async get(keys) { return chrome.storage.local.get(keys); },
@@ -39,10 +38,13 @@ async function registerAttempt(email, password, serial) {
     body: registrationBody({ email, password, serial, deviceName: DEVICE_NAME, deviceType: DEVICE_TYPE, softwareVersion: SOFTWARE_VERSION }),
   });
   const text = await res.text();
-  // The OTP challenge is a 401 whose body still says <customer_not_found>,
-  // identical to a wrong-password 401 (observed 2026). The only signal
-  // distinguishing them is whether the OTP email arrives.
-  if (res.status === 401) return { otp: true };
+  // The OTP challenge is signaled by <customer_not_found>/<error_code>401</error_code>
+  // in the BODY; the HTTP status varies (observed 2026: not always 401). The same
+  // body also means wrong password; the only distinguishing signal is whether the
+  // OTP email arrives.
+  if (res.status === 401 || text.includes('customer_not_found') || /<error_code>\s*401/.test(text)) {
+    return { otp: true };
+  }
   if (!res.ok) throw new Error(`Amazon registration failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
   const parsed = parseRegisterResponseXml(text);
   return {
@@ -56,51 +58,13 @@ async function registerAttempt(email, password, serial) {
   };
 }
 
-/**
- * PDOCs via the Manage-Your-Content page, scraped by the content script IN THE
- * PAGE'S OWN CONTEXT. The background worker's cross-origin POST gets an HTML WAF
- * challenge (observed 2026-09); the page context looks exactly like the site's own
- * traffic. We open/reuse the user's MYCD tab and retry while it loads (or while
- * the user logs in there).
- */
-const MYCD_PATH = '/hz/mycd/myx#/home/content/pdocs/dateDsc';
-
-async function scrapePdocsViaTab(regionHost, { activate, closeWhenDone }) {
-  let [tab] = await chrome.tabs.query({ url: `https://www.${regionHost}/hz/mycd/*` });
-  const created = !tab;
-  if (created) {
-    tab = await chrome.tabs.create({ url: `https://www.${regionHost}${MYCD_PATH}`, active: activate });
-  } else if (activate) {
-    await chrome.tabs.update(tab.id, { active: true });
-  }
-  try {
-    const deadline = Date.now() + 60_000;
-    let lastErr = 'content script unavailable';
-    for (;;) {
-      try {
-        const r = await chrome.tabs.sendMessage(tab.id, { type: 'scrape-pdocs' });
-        if (r?.ok) return r.items;
-        lastErr = r?.error ?? 'scrape failed';
-      } catch (err) {
-        // "Receiving end does not exist" = content script not loaded yet; keep waiting.
-        lastErr = err?.message ?? String(err);
-      }
-      if (Date.now() > deadline) throw new Error(`couldn't read the Amazon page: ${lastErr}`);
-      await new Promise((r2) => setTimeout(r2, 1000));
-    }
-  } finally {
-    if (created && closeWhenDone) await chrome.tabs.remove(tab.id).catch(() => {});
-  }
-}
-
 // --- upload --------------------------------------------------------------------------
 
 async function uploadCredential() {
-  const { server, username, authKey, credential, library } = await store.get([
-    'server', 'username', 'authKey', 'credential', 'library',
+  const { server, username, authKey, credential } = await store.get([
+    'server', 'username', 'authKey', 'credential',
   ]);
   if (!server || !authKey || !credential) throw new Error('not configured/registered');
-  const cred = { ...credential, library: library ?? [] };
   const res = await fetch(`${server}/api/v1/connectors/kindle`, {
     method: 'PUT',
     headers: {
@@ -109,35 +73,20 @@ async function uploadCredential() {
       'content-type': 'application/json',
       accept: 'application/vnd.koreader.v1+json',
     },
-    body: JSON.stringify({ credential: cred }),
+    body: JSON.stringify({ credential }),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`server rejected the link (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  await store.set({ lastUpload: Date.now(), lastError: null });
 }
 
-async function syncLibrary({ activateTab = true } = {}) {
-  const { credential, region } = await store.get(['credential', 'region']);
-  if (!credential) throw new Error('register the device first');
-  const regionHost = REGIONS.includes(region) ? region : 'amazon.com';
-  // The extension only captures the PDOC list (needs the live web session);
-  // the SERVER enumerates purchased books itself via signed syncMetaData.
-  const pdocs = await scrapePdocsViaTab(regionHost, { activate: activateTab, closeWhenDone: !activateTab });
-  const seen = new Set();
-  const library = pdocs.filter((b) => {
-    const key = `${b.type}:${b.asin}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  await store.set({ library });
-  await uploadCredential(); // server validates the credential on every PUT — also a liveness check
-  await store.set({ lastSync: Date.now(), lastError: null });
-  return library.length;
-}
-
-/** Fire-and-forget sync that only records the outcome (message handlers stay fast). */
-function syncLibraryInBackground(opts) {
-  syncLibrary(opts).catch((e) => store.set({ lastError: e?.message ?? String(e) }));
+/** Upload that records the outcome instead of failing the registration it follows. */
+async function uploadBestEffort() {
+  try {
+    await uploadCredential();
+  } catch (e) {
+    await store.set({ lastError: e?.message ?? String(e) });
+  }
 }
 
 // --- messages ------------------------------------------------------------------------
@@ -152,10 +101,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           headers: { 'x-auth-user': msg.username, 'x-auth-key': authKey, accept: 'application/vnd.koreader.v1+json' },
         });
         if (!res.ok) throw new Error(`sync account auth failed (HTTP ${res.status})`);
-        await store.set({ server, username: msg.username, authKey, region: msg.region ?? 'amazon.com', lastError: null });
-        // If a credential already exists (re-install), try an immediate library sync.
+        await store.set({ server, username: msg.username, authKey, lastError: null });
+        // If a credential already exists (re-install), upload it right away.
         const { credential } = await store.get(['credential']);
-        if (credential) syncLibraryInBackground({ activateTab: true });
+        if (credential) await uploadBestEffort();
         return { ok: true };
       }
       case 'register-begin': {
@@ -165,10 +114,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           await store.set({ pendingRegistration: { email: msg.email, serial, expiresAt: Date.now() + 10 * 60_000 } });
           return { ok: true, otp: true };
         }
-        // Registration succeeded — the link works even if the library scrape fails.
+        // Registration succeeded even if the upload fails; retry from the popup.
         await store.set({ credential: r.device, pendingRegistration: null, lastError: null });
-        syncLibraryInBackground({ activateTab: true });
-        return { ok: true, otp: false, pending: true };
+        await uploadBestEffort();
+        return { ok: true, otp: false };
       }
       case 'register-complete': {
         const { pendingRegistration } = await store.get(['pendingRegistration']);
@@ -176,32 +125,35 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           throw new Error('registration expired — start again');
         }
         const r = await registerAttempt(pendingRegistration.email, msg.code, pendingRegistration.serial);
-        if (r.otp) throw new Error('Amazon rejected that code — start again');
+        if (r.otp) {
+          await store.set({ pendingRegistration: null });
+          throw new Error('Amazon rejected that code. Start again with your password.');
+        }
         await store.set({ credential: r.device, pendingRegistration: null, lastError: null });
-        syncLibraryInBackground({ activateTab: true });
-        return { ok: true, pending: true };
+        await uploadBestEffort();
+        return { ok: true };
       }
-      case 'sync-now': {
-        syncLibraryInBackground({ activateTab: true });
-        return { ok: true, pending: true };
+      case 'upload': {
+        await uploadCredential();
+        return { ok: true };
       }
       case 'status': {
-        const s = await store.get(['server', 'username', 'authKey', 'region', 'credential', 'library', 'lastSync', 'lastError']);
+        const s = await store.get(['server', 'username', 'authKey', 'credential', 'lastUpload', 'lastError', 'pendingRegistration']);
         return {
           ok: true,
           configured: Boolean(s.server && s.username && s.authKey),
           registered: Boolean(s.credential),
+          // Survives the popup closing (e.g. to read the OTP email).
+          otpPending: Boolean(s.pendingRegistration && s.pendingRegistration.expiresAt > Date.now()),
           deviceName: s.credential?.device_name ?? null,
           server: s.server ?? null,
           username: s.username ?? null,
-          region: s.region ?? 'amazon.com',
-          libraryCount: Array.isArray(s.library) ? s.library.length : 0,
-          lastSync: s.lastSync ?? null,
+          lastUpload: s.lastUpload ?? null,
           lastError: s.lastError ?? null,
         };
       }
       case 'unlink': {
-        await store.set({ credential: null, library: [], lastSync: null, lastError: null });
+        await store.set({ credential: null, lastUpload: null, lastError: null });
         return { ok: true };
       }
       default:
@@ -219,12 +171,6 @@ function randomHex(bytes) {
   crypto.getRandomValues(buf);
   return [...buf].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
-
-// NOTE: no scheduled refresh anywhere. The PDOC list is captured after
-// registration and on "Sync library now"; the SERVER refreshes purchased books
-// itself, only when a match attempt misses (a new book might exist). A book that
-// never matches simply doesn't sync to Kindle — that is the normal case, not an
-// error.
 
 // Compact JS MD5 (WebCrypto has none). MD5 is the kosync password-at-rest
 // protocol; the server never sees plaintext. Public-domain style reference

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  parseCsrfToken,
-  parseOwnershipData,
   parseRegisterResponseXml,
   registrationBody,
   xmlField,
@@ -40,40 +38,5 @@ describe('registration + XML parsing', () => {
   it('xmlField extracts plain and empty values', () => {
     expect(xmlField('<a><b> x </b></a>', 'b')).toBe('x');
     expect(xmlField('<a/>', 'b')).toBe('');
-  });
-});
-
-describe('MYCD parsing', () => {
-  it('extracts csrfToken in both page shapes', () => {
-    expect(parseCsrfToken('<script>var csrfToken = "tok123";</script>')).toBe('tok123');
-    expect(parseCsrfToken('<script>window.csrfToken = "tok456"</script>')).toBe('tok456');
-    expect(parseCsrfToken('<html>nothing</html>')).toBeNull();
-  });
-
-  it('normalizes the ownership payload with pagination total', () => {
-    const json = {
-      GetContentOwnershipDataResponse: {
-        ownershipData: {
-          numberOfItems: 3,
-          items: [
-            { asin: 'B0PDOC1', title: 'Doc One', authors: 'Writer One' },
-            { asin: 'B0PDOC2', title: 'Doc Two', authors: ['A', 'B'] },
-            { asin: '', title: 'skip me' },
-          ],
-        },
-      },
-    };
-    expect(parseOwnershipData(json)).toEqual({
-      total: 3,
-      items: [
-        { asin: 'B0PDOC1', title: 'Doc One', author: 'Writer One', type: 'PDOC' },
-        { asin: 'B0PDOC2', title: 'Doc Two', author: 'A, B', type: 'PDOC' },
-      ],
-    });
-  });
-
-  it('tolerates alternate payload shapes', () => {
-    expect(parseOwnershipData({ items: [{ ASIN: 'X1', title: 'T' }] }).items[0].asin).toBe('X1');
-    expect(parseOwnershipData({}).items).toEqual([]);
   });
 });
