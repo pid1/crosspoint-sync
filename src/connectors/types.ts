@@ -151,6 +151,13 @@ export interface Connector {
   /** Hidden from the connector list/UI (still registered; not user-linkable via the UI). */
   hidden?: boolean;
   /**
+   * Stealth: hidden from the connector list until the user reveals it (POST
+   * /connectors/:id/reveal, e.g. via the /kindle landing page). A linked account
+   * is always visible. For gated, experimental connectors that shouldn't be
+   * discoverable from the main UI alone.
+   */
+  revealable?: boolean;
+  /**
    * How a document is matched to this service.
    *  - 'metadata' (default): needs the book's title/author, so documents with no
    *    metadata can never match and are skipped on fan-out (no wasted attempts).
@@ -200,6 +207,26 @@ export interface Connector {
    * has what it needs. Optional; returns null if it can't be determined.
    */
   resolveEdition?(cred: Credential, externalId: string, http: HttpTransport): Promise<string | null>;
+
+  /**
+   * Force-refresh the connector's server-side library list (for a dashboard
+   * "refresh library" button). Returns the new item count. Optional — most
+   * connectors search a live catalog and have nothing to refresh.
+   */
+  refreshLibrary?(cred: Credential, http: HttpTransport): Promise<{ count: number } | null>;
+
+  /**
+   * Verify an externally-supplied book id against the user's account at this
+   * service (e.g. an ASIN pasted in the match UI), returning the verified book
+   * plus any resolved edition hint, or null when the id isn't owned/reachable.
+   * Stronger than a list-membership check where the service offers one.
+   * Optional.
+   */
+  lookup?(
+    cred: Credential,
+    externalId: string,
+    http: HttpTransport
+  ): Promise<(ExternalBook & { edition?: string | null }) | null>;
 
   /**
    * Pull position changes since a cursor (ms epoch), for bidirectional sync.

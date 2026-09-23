@@ -217,6 +217,22 @@ export function backfillDocumentMeta(
   ).run(userId, document, title ?? null, author ?? null, now);
 }
 
+/** Mark a stealth connector revealed for a user (idempotent). */
+export function revealConnector(db: DB, userId: number, connectorId: string, now = nowSeconds()): void {
+  db.prepare(
+    'INSERT OR IGNORE INTO connector_reveals (user_id, connector_id, revealed_at) VALUES (?, ?, ?)'
+  ).run(userId, connectorId, now);
+}
+
+/** The connector ids this user has revealed. */
+export function listReveals(db: DB, userId: number): string[] {
+  return (
+    db.prepare('SELECT connector_id FROM connector_reveals WHERE user_id = ?').all(userId) as {
+      connector_id: string;
+    }[]
+  ).map((r) => r.connector_id);
+}
+
 export function getPullCursor(db: DB, userId: number, connectorId: string): number {
   const row = db
     .prepare('SELECT pull_cursor FROM connector_accounts WHERE user_id = ? AND connector_id = ?')

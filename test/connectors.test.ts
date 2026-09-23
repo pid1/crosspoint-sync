@@ -55,9 +55,51 @@ describe('connector management API', () => {
     expect(body.encryption).toBe('enabled');
     const ids = body.connectors.map((c: { id: string }) => c.id).sort();
     // The classic (highlights-only) readwise connector is hidden; still
-    // registered but not listed. readwise-reader (reading-state) is listed.
+    // registered but not listed. Kindle is stealth: hidden until revealed.
     expect(ids).toEqual(['audiobookshelf', 'bookfusion', 'hardcover', 'kosync', 'microblog', 'readwise-reader']);
     expect(body.connectors.every((c: { linked: boolean }) => !c.linked)).toBe(true);
+  });
+
+  it('reveals a stealth connector on demand, and always shows it once linked', async () => {
+    const fake = fakeTransport();
+    const { app } = makeTestApp({}, { connectorTransport: fake.transport });
+    const { headers } = await registerUser(app);
+
+    // Hidden by default.
+    let list = await (await app.request('/api/v1/connectors', { headers })).json();
+    expect(list.connectors.some((c: { id: string }) => c.id === 'kindle')).toBe(false);
+
+    // Reveal via the landing-page endpoint (idempotent).
+    const reveal = await app.request('/api/v1/connectors/kindle/reveal', { method: 'POST', headers });
+    expect(reveal.status).toBe(200);
+    expect((await reveal.json()).revealed).toBe(true);
+    list = await (await app.request('/api/v1/connectors', { headers })).json();
+    expect(list.connectors.some((c: { id: string }) => c.id === 'kindle')).toBe(true);
+
+    // Non-revealable connectors reject the endpoint.
+    const nope = await app.request('/api/v1/connectors/hardcover/reveal', { method: 'POST', headers });
+    expect(nope.status).toBe(400);
+
+    // A fresh user who LINKS kindle (e.g. via the extension) sees it without revealing.
+    const { headers: headers2 } = await registerUser(app);
+    fake.on('syncMetaData', 200, '<response/>');
+    const { generateKeyPairSync } = await import('node:crypto');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const good = await app.request('/api/v1/connectors/kindle', {
+      method: 'PUT',
+      headers: headers2,
+      body: JSON.stringify({
+        credential: {
+          adp_token: 'x',
+          private_key: Buffer.from(privateKey.export({ format: 'der', type: 'pkcs8' })).toString('base64'),
+          device_serial: 'd'.repeat(40),
+        },
+      }),
+    });
+    expect(good.status).toBe(200);
+    list = await (await app.request('/api/v1/connectors', { headers: headers2 })).json();
+    const kindle = list.connectors.find((c: { id: string }) => c.id === 'kindle');
+    expect(kindle?.linked).toBe(true);
   });
 
   it('rejects linking when TOKEN_ENC_KEY is unset', async () => {

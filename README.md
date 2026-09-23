@@ -62,6 +62,38 @@ DATABASE_PATH=./data/crosspoint.db PORT=8080 node dist/index.js
 | `TOKEN_ENC_KEY` | _(unset)_ | Enables external-service connectors. 64 hex chars, a base64 32-byte key, or a ≥32-char passphrase. Encrypts stored connector credentials at rest; unset = connectors disabled. |
 | `TRUST_PROXY` | `false` (`true` on Railway) | Set `true` only when direct access is blocked and a trusted reverse proxy overwrites any client-supplied `X-Forwarded-Proto`; permits connector linking through an HTTPS-terminating proxy. Defaults to `true` when `RAILWAY_ENVIRONMENT` is present, since Railway always fronts the service with its TLS-terminating edge; set `TRUST_PROXY=false` to override. |
 | `CORS_ORIGINS` | `*` | Origins allowed to call the sync API from browsers (comma-separated). The default wildcard is safe: the API authenticates with headers, not cookies, and the web UI's cookie routes never get CORS headers. |
+| `KINDLE_SERVER_REGISTRATION` | `false` | **Self-host, single-user installs only.** Enables a server-side Amazon device-registration endpoint for the Kindle connector (the password transits memory, never stored). Off by default; everyone else uses the browser extension below. |
+
+### Link Amazon Kindle (experimental, read-only)
+
+Syncs reading progress **from** a non-jailbroken Kindle (or Kindle app) into crosspoint-sync, so
+CrossPoint/KOReader devices resume where the Kindle left off — for Send-to-Kindle personal
+documents as well as purchased books. CrossPoint → Kindle is a protocol-known but unproven write
+path and is not built yet (see [docs/design/kindle-sync.md](docs/design/kindle-sync.md)).
+
+The connector is **stealth**: it doesn't appear in the dashboard's connector list. Visit
+`/kindle` on your server (e.g. `http://localhost:8080/kindle`) — the landing page has the setup
+instructions and reveals it on your account page. Linking from the extension also reveals it.
+
+The connector uses Amazon's device sync protocol with a scoped, revocable device credential —
+**your Amazon password never touches the sync server**. The server *is* the registered "Android
+device": it holds the credential and makes every signed sync call itself (library, positions).
+Setup is the **CrossPoint Kindle Link browser extension** — download it from your own server
+(`GET /kindle-link.zip`, or the download link on the dashboard's Kindle connector page), unzip,
+and load unpacked at `chrome://extensions`. It is auth-only: it registers the device (password +
+emailed one-time code never leave the browser) and captures your Send-to-Kindle library list by
+reading your Manage Your Content tab in the page's own context — the only context Amazon's WAF
+accepts. Purchased books need nothing at all: the server enumerates them itself.
+
+Freshness, without any scheduled checks: when a book syncs from a device, it's matched against
+the known library; on a miss the server refreshes its purchased-book list once and retries, and a
+book that still doesn't match simply doesn't sync to Kindle (the normal case for books never sent
+there). New Send-to-Kindle docs arrive via the extension (right after registration, or "Sync
+library now" anytime). The dashboard's match page has a **Refresh library** button for the
+purchased-book list, and manual matching verifies a pasted ASIN against your Kindle account
+(list membership plus an ownership probe) before saving it. Positions arrive as percentages
+(Amazon's furthest-read model, forward-only). Fan-in is on-demand: it happens when a device asks
+for progress on a matched book — no background polling of Amazon, ever.
 
 ### Link Micro.blog
 

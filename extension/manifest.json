@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "CrossPoint Sync — Kindle Link",
+  "version": "0.3.0",
+  "description": "Links your Kindle to your crosspoint-sync server. Registers a scoped device credential and syncs your Kindle library list, all inside your browser — your Amazon password never leaves this machine.",
+  "permissions": ["storage"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "host_permissions": [
+    "https://www.amazon.com/*",
+    "https://www.amazon.co.uk/*",
+    "https://www.amazon.de/*",
+    "https://www.amazon.fr/*",
+    "https://www.amazon.ca/*",
+    "https://www.amazon.com.au/*",
+    "https://www.amazon.co.jp/*",
+    "https://firs-ta-g7g.amazon.com/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "CrossPoint Kindle Link" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.amazon.com/hz/mycd/*",
+        "https://www.amazon.co.uk/hz/mycd/*",
+        "https://www.amazon.de/hz/mycd/*",
+        "https://www.amazon.fr/hz/mycd/*",
+        "https://www.amazon.ca/hz/mycd/*",
+        "https://www.amazon.com.au/hz/mycd/*",
+        "https://www.amazon.co.jp/hz/mycd/*"
+      ],
+      "js": ["content-mycd.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib.mjs"],
+      "matches": [
+        "https://www.amazon.com/*",
+        "https://www.amazon.co.uk/*",
+        "https://www.amazon.de/*",
+        "https://www.amazon.fr/*",
+        "https://www.amazon.ca/*",
+        "https://www.amazon.com.au/*",
+        "https://www.amazon.co.jp/*"
+      ]
+    }
+  ]
+}

@@ -142,25 +142,16 @@ the direct-Kindle spike still stands for progress specifically.)
 
 ### Tier 3 — Cookie-replay possible, but higher blast radius / harder. Spike, don't commit.
 
-- **Amazon Kindle (`read.amazon.com`)** — cookie-replay is proven (`Xetera/kindle-api` reads
-  library + reading-progress % using `at-main`/`sess-at-main`/`x-main`/`ubid-main`/`session-id`
-  cookies, valid ~1 year). Two real obstacles beyond Tier 2: (a) **Amazon added TLS fingerprinting
-  in July 2023**, so a naive server fetch is blocked — you need a browser-mimicking TLS client
-  (bogdanfinn/tls-client style) or you route through the user's browser via an extension; (b) an
-  Amazon session cookie is higher blast radius than a Goodreads one (same account as payments,
-  though scoped to the `read.amazon.com` subdomain in Readwise's model). Whispersync itself (the
-  device progress protocol) remains private with no endpoint; what's reachable is the Cloud Reader
-  progress % and the `/notebook` highlights. So "bidirectional Kindle progress" is partially real
-  (read progress %, write via the same web surface) but engineering-heavy and ToS-gray.
+- **Amazon Kindle — IMPLEMENTED (read path, experimental), via a better path than this sketch.**
+  The cookie-replay-against-`read.amazon.com` approach drafted here was investigated and rejected:
+  Cloud Reader ignores personal documents (the actual use case), has no position write, needs
+  TLS-fingerprint impersonation, and `at-main` cookies are a full Amazon session. The shipped
+  connector instead uses the **Fiona/CDE device protocol** with a scoped, revocable registered-device
+  credential — plain Node fetch (no fingerprint battle on device APIs), no web cookies, no server-side
+  password. Fan-in (Kindle → CrossPoint) works on-demand; fan-out is a documented-but-unproven
+  protocol gated on a live spike. Full design: [kindle-sync.md](kindle-sync.md).
 - **Audible** — only a community reverse-engineered API; audiobook position ≠ ebook position
   (needs a timestamp↔percentage model). Lower priority.
-
-  Verdict: technically reachable via the same cookie-replay pattern (no password storage), but the
-  Amazon TLS-fingerprinting workaround and the larger credential blast radius make this a research
-  spike gated on a security review — not a committed v1 feature. **For highlights specifically,
-  prefer the Readwise hop (Tier 1) over building this at all.** A direct Kindle connector is only
-  justified by reading-*progress* sync, which Readwise can't provide. The framework accommodates
-  it; we don't rush it.
 
 ## What this means for the build
 
@@ -168,11 +159,13 @@ the direct-Kindle spike still stands for progress specifically.)
    runner, web-UI pairing screen). Durable regardless of which connectors follow.
 2. **Ship Hardcover + Readwise** as the first Tier-1 connectors (token APIs, no extension needed).
 3. **Build the browser extension** — the decided, shared credential-capture path for every
-   cookie-based connector. It's the prerequisite for all of Tier 2/3, so it comes before them.
+   cookie-based connector. **Started:** `extension/` ships as CrossPoint Kindle Link (Kindle
+   registration + MYCD library capture, all in-browser); generalize it for Tier 2 connectors.
 4. **Gate Tier 2** (Goodreads/StoryGraph, via the extension) behind an explicit experimental opt-in
    if there's demand; expect maintenance cost and breakage. Revisit if official APIs appear.
-5. **Do not build Tier 3 credential storage.** Track the Amazon/Audible landscape; if an official
-   API or a legal-reviewed narrow importer becomes viable, the framework already accommodates it.
+5. **Tier 3 Kindle landed differently than planned.** Not cookie-replay at all: the Fiona/CDE
+   device protocol with a scoped device credential (see [kindle-sync.md](kindle-sync.md)) —
+   read path shipped experimental, write path gated on a live spike. Audible remains untracked.
 
 ## Cookie-replay mechanics (Tier 2/3)
 
@@ -185,9 +178,10 @@ Shared shape for every cookie-replay connector:
    over-sharing, matches Readwise's proven UX) and never touches the login page or password.
    Manual cookie paste stays as a no-extension fallback only. We store the harvested bundle
    encrypted, treated as password-equivalent. Cookie sets per service:
-   - Goodreads: `_session_id2` (+ `ccsid`)
-   - StoryGraph: `_story_graph_session` + `remember_user_token`
-   - Kindle: `at-main`, `sess-at-main`, `x-main`, `ubid-main`, `session-id`
+    - Goodreads: `_session_id2` (+ `ccsid`)
+    - StoryGraph: `_story_graph_session` + `remember_user_token`
+    - ~~Kindle: `at-main`, `sess-at-main`, `x-main`, `ubid-main`, `session-id`~~ — abandoned;
+      the Kindle connector uses a registered-device credential instead (kindle-sync.md).
 2. **CSRF handshake (Rails sites: Goodreads, StoryGraph).** Before any write, GET an authenticated
    HTML page, scrape `<meta name="csrf-token">` (or the hidden `authenticity_token` input), and
    send it as `X-CSRF-Token` (AJAX) or an `authenticity_token` form field (form POST), alongside

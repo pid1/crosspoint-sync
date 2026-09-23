@@ -73,7 +73,8 @@ export async function pollConnector(
       try {
         const current = latestProgress(db, userId, match.document);
         const change = await conn.pullProgress(credential, {
-          externalId: match.external_id, confidence: match.confidence, fromSidecar: match.source === 'sidecar',
+          externalId: match.external_id, externalEdition: match.external_edition,
+          confidence: match.confidence, fromSidecar: match.source === 'sidecar',
         }, http, (current?.updated_at ?? 0) * 1000);
         options.signal?.throwIfAborted();
         // The account, match, or canonical progress can change while the request is in flight.

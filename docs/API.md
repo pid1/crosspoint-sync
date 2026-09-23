@@ -481,10 +481,41 @@ Manually set a match (sticky — never auto-recomputed). Body `{"external_id": "
 
 Force (re)matching now; returns the resolved match or null. Preserves manual overrides.
 
+#### POST /api/v1/connectors/{id}/library/refresh
+
+Force-refresh the connector's server-side library list (Kindle: the purchased-book list;
+Send-to-Kindle docs refresh via the extension only). `{"count": 2}`. 400 for connectors
+without a refreshable library.
+
+#### POST /api/v1/connectors/{id}/lookup
+
+Verify an externally-supplied book id against the user's account at the service.
+Body `{"external_id": "B0…"}`. Kindle: checks the combined library, then an ownership
+probe (the converted file only downloads for owned books) — also resolves the
+position-space ruler as `book.edition`. `{"found": true, "book": {"externalId",
+"title", "author", "edition"}}` or `{"found": false}`. 400 for connectors without lookup.
+
+#### POST /api/v1/connectors/kindle/register/begin · /register/complete
+
+**Self-host only** — mounted only when `KINDLE_SERVER_REGISTRATION=true`. Two-step Amazon device
+registration for the Kindle connector (the password transits server memory only; never stored).
+`begin` body `{"email", "password"}` → `{"status": "otp_required", "nonce"}` (Amazon emails a code)
+or `{"status": "registered", "linked": true}` directly. `complete` body `{"nonce", "code"}` finishes
+the OTP round trip and links the account. On any multi-user install use the CrossPoint Kindle
+Link browser extension instead — the password never leaves the user's machine. See
+docs/design/kindle-sync.md.
+
+**Kindle extension download.** `GET /kindle-link.zip` (public) serves the CrossPoint Kindle Link
+browser extension as a zip attachment, for the load-unpacked setup linked from the dashboard's
+Kindle connector page.
+
 **Matching** is server-side from the document's title/author (the EPUB metadata the firmware sends —
 so connectors need "Send Metadata" on). **Fan-out** is automatic: a progress PUT enqueues a
 progress/finished event to write-connectors that carry it; a clippings PUT enqueues highlight events
 to highlight-connectors (Readwise). A background worker delivers them with retry/backoff.
+**Fan-in** (read connectors: Audiobookshelf, Readwise Reader, BookFusion, Kindle) is pulled on a
+background interval for library-wide providers, and on-demand — when a device asks for progress on a
+matched book — for per-book providers.
 
 ### GET /healthz
 
