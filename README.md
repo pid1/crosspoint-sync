@@ -63,6 +63,7 @@ DATABASE_PATH=./data/crosspoint.db PORT=8080 node dist/index.js
 | `TRUST_PROXY` | `false` (`true` on Railway) | Set `true` only when direct access is blocked and a trusted reverse proxy overwrites any client-supplied `X-Forwarded-Proto`; permits connector linking through an HTTPS-terminating proxy. Defaults to `true` when `RAILWAY_ENVIRONMENT` is present, since Railway always fronts the service with its TLS-terminating edge; set `TRUST_PROXY=false` to override. |
 | `CORS_ORIGINS` | `*` | Origins allowed to call the sync API from browsers (comma-separated). The default wildcard is safe: the API authenticates with headers, not cookies, and the web UI's cookie routes never get CORS headers. |
 | `KINDLE_SERVER_REGISTRATION` | `false` | **Self-host, single-user installs only.** Enables a server-side Amazon device-registration endpoint for the Kindle connector (the password transits memory, never stored). Off by default; everyone else uses the browser extension below. |
+| `KINDLE_SOFTWARE_REV` | `1184370688` | Kindle software revision claimed on book-content downloads (the position-ruler fetch). Modern purchases 403 for the ancient registration revision; bump this (e.g. `1221328936`) if Amazon still refuses delivery. |
 
 ### Link Amazon Kindle (experimental, read-only)
 

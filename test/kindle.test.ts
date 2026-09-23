@@ -264,6 +264,21 @@ describe('kindle connector', () => {
     ).rejects.toThrow(/KF8 position space/);
   });
 
+  it('negative-caches ruler failures: first pull logs, later pulls skip without re-downloading', async () => {
+    const fake = fionaFake({ contentStatus: 403 });
+    const cred = testCred();
+    const m = { externalId: 'PDOC:B0NOLOADER', confidence: 1 };
+    const first = await kindleConnector.pullProgress!(cred, m, fake.transport, 0).catch((e) => e);
+    expect(first).toBeInstanceOf(Error);
+    expect((first as Error).message).toMatch(/cannot download the converted book/);
+    const downloads = fake.calls.filter((u) => u.includes('FSDownloadContent')).length;
+    expect(downloads).toBe(1);
+    // Second pull: known-undownloadable, skips quietly with no new download.
+    const second = await kindleConnector.pullProgress!(cred, m, fake.transport, 0);
+    expect(second).toBeNull();
+    expect(fake.calls.filter((u) => u.includes('FSDownloadContent')).length).toBe(1);
+  });
+
   it('flags needsReauth when the device credential is dead', async () => {
     const fake = fionaFake({ sidecarStatus: 401 });
     const err = await kindleConnector

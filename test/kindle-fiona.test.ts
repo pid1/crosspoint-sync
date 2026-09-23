@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   adpDigestHeader,
   extractSidecarGuid,
+  fetchContent,
   fetchLastRead,
   parseLastReadXml,
   parseSyncMetadataXml,
@@ -153,6 +154,16 @@ describe('syncMetaData parsing (EBOK library)', () => {
       { asin: 'B001', title: 'Book One', author: 'Author A' },
       { asin: 'B002', title: 'Book Two', author: null },
     ]);
+  });
+});
+
+describe('fetchContent', () => {
+  it('claims a newer software revision for the delivery check', async () => {
+    const { transport, calls } = transportReturning(200, 'x');
+    await fetchContent(transport, testDevice(), 'B012345678', 'PDOC');
+    expect(calls[0].url).toContain('FSDownloadContent?type=PDOC&key=B012345678');
+    expect(calls[0].url).toContain('is_archived_items=1');
+    expect(calls[0].url).toContain('software_rev=1184370688');
   });
 });
 

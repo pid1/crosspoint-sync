@@ -97,8 +97,20 @@ export function parseExternalId(externalId: string): { type: FionaContentType; a
 // The decompressed-text length of one Amazon conversion is account-independent,
 // so a small process-wide cache avoids re-downloading whole books. Persisted
 // per-match via external_edition; this only saves the fetch across restarts.
+// PERMANENT failures (403 delivery-not-supported, 404, unparseable formats) are
+// negative-cached for the process lifetime too — otherwise every sync of that
+// book re-downloads it from Amazon just to fail again. Cleared on restart
+// (e.g. after a KINDLE_SOFTWARE_REV change or re-registration).
 const rulerCache = new Map<string, number>();
 const RULER_CACHE_MAX = 500;
+const rulerFailures = new Map<string, string>();
+
+class RulerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RulerUnavailableError';
+  }
+}
 
 async function rulerFor(
   http: HttpTransport,
@@ -116,15 +128,27 @@ async function rulerFor(
     rulerCache.set(asin, hit);
     return hit;
   }
-  const content = await fetchContent(http, device, asin, type);
+  const priorFailure = rulerFailures.get(asin);
+  if (priorFailure) throw new RulerUnavailableError(priorFailure);
+
+  let content: Buffer;
+  try {
+    content = await fetchContent(http, device, asin, type);
+  } catch (err) {
+    if (err instanceof FionaError && (err.status === 403 || err.status === 404)) {
+      const msg = `kindle: cannot download the converted book (${asin}): ${err.message}`;
+      rulerFailures.set(asin, msg);
+      throw new RulerUnavailableError(msg);
+    }
+    throw err; // transient (network, 429, 5xx) — not cached, retried next time
+  }
   let length: number;
   try {
     length = palmDocTextLength(content);
   } catch (err) {
-    throw new ConnectorOperationError(
-      `kindle: cannot read the converted book's position space (${asin}: ${err instanceof MobiError ? err.message : 'unparseable content'})`,
-      false
-    );
+    const msg = `kindle: cannot read the converted book's position space (${asin}: ${err instanceof MobiError ? err.message : 'unparseable content'})`;
+    rulerFailures.set(asin, msg);
+    throw new RulerUnavailableError(msg);
   }
   if (rulerCache.size >= RULER_CACHE_MAX) {
     const oldest = rulerCache.keys().next().value;
@@ -357,6 +381,12 @@ async function pullProgress(
   if (!Number.isFinite(updatedAtMs) && sinceMs) return null;
   const effectiveUpdatedMs = Number.isFinite(updatedAtMs) ? updatedAtMs : Date.now();
   if (sinceMs && effectiveUpdatedMs <= sinceMs) return null;
+
+  // Known-undownloadable book (delivery refused/unparseable — logged on the
+  // FIRST failure): skip quietly instead of re-downloading just to fail again.
+  const hasUsableRuler =
+    (m.externalEdition != null && Number(m.externalEdition) > 0) || rulerCache.has(asin);
+  if (!hasUsableRuler && rulerFailures.has(asin)) return null;
 
   const total = await rulerFor(http, device, type, asin, m.externalEdition);
   // GATE (position spaces): pos indexes the reporter's converted format. Our ruler

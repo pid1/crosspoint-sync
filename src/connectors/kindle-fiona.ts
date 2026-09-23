@@ -337,13 +337,25 @@ export async function fetchLastRead(
  * The converted book file Amazon delivers to our device identity (MOBI7). Used as
  * the "ruler" that turns a byte-offset position into a fraction. This is the whole
  * book — callers must cache the derived length, never re-download per poll.
+ *
+ * software_rev claims a Kindle software revision for the delivery check: Amazon
+ * 403s (DELIVERY_NOT_SUPPORTED) modern purchases for our 2014-era registration
+ * revision, but a newer claimed revision is honored like an app that updated
+ * (the 1184370688 default is proven on this endpoint by Kindle_download_helper;
+ * override with KINDLE_SOFTWARE_REV, e.g. 1221328936 from the modern app flow).
  */
+export function softwareRevision(env: NodeJS.ProcessEnv = process.env): string {
+  return env.KINDLE_SOFTWARE_REV ?? '1184370688';
+}
+
 export async function fetchContent(
   http: HttpTransport,
   device: FionaDevice,
   asin: string,
   type: FionaContentType
 ): Promise<Buffer> {
-  const path = `/FionaCDEServiceEngine/FSDownloadContent?type=${encodeURIComponent(type)}&key=${encodeURIComponent(asin)}`;
+  const path =
+    `/FionaCDEServiceEngine/FSDownloadContent?type=${encodeURIComponent(type)}` +
+    `&key=${encodeURIComponent(asin)}&is_archived_items=1&software_rev=${softwareRevision()}`;
   return fionaGet(http, device, 'cde', path);
 }
