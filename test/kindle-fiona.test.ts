@@ -163,7 +163,7 @@ describe('fetchContent', () => {
     await fetchContent(transport, testDevice(), 'B012345678', 'PDOC');
     expect(calls[0].url).toContain('FSDownloadContent?type=PDOC&key=B012345678');
     expect(calls[0].url).toContain('is_archived_items=1');
-    expect(calls[0].url).toContain('software_rev=1184370688');
+    expect(calls[0].url).toContain('software_rev=1221328936');
   });
 });
 

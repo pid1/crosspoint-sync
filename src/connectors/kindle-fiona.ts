@@ -27,7 +27,7 @@ export const FIONA_HOSTS = {
 
 /** The Android-app device identity we register as (same as the reference probes). */
 const DEVICE_TYPE = 'A3VNNDO1I14V03';
-const SOFTWARE_VERSION = '1124597795';
+const SOFTWARE_VERSION = '1221328936';
 const REGISTRATION_UA = 'Dalvik/2.1.0 (Linux; U; Android 5.0; Nexus 1)';
 const SIGNED_UA = 'Dalvik/1.2.0';
 
@@ -339,13 +339,14 @@ export async function fetchLastRead(
  * book — callers must cache the derived length, never re-download per poll.
  *
  * software_rev claims a Kindle software revision for the delivery check: Amazon
- * 403s (DELIVERY_NOT_SUPPORTED) modern purchases for our 2014-era registration
- * revision, but a newer claimed revision is honored like an app that updated
- * (the 1184370688 default is proven on this endpoint by Kindle_download_helper;
- * override with KINDLE_SOFTWARE_REV, e.g. 1221328936 from the modern app flow).
+ * 403s (DELIVERY_NOT_SUPPORTED) modern purchases for old registered revisions.
+ * The check is against the REGISTERED software version (the request param alone
+ * does not unlock delivery — observed 2026-09-23), so this must match the
+ * registration claim; both default to the modern app flow's 1221328936.
+ * Override with KINDLE_SOFTWARE_REV for experiments.
  */
 export function softwareRevision(env: NodeJS.ProcessEnv = process.env): string {
-  return env.KINDLE_SOFTWARE_REV ?? '1184370688';
+  return env.KINDLE_SOFTWARE_REV ?? '1221328936';
 }
 
 export async function fetchContent(
