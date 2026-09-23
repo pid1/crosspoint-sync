@@ -14,6 +14,13 @@ import { resolveDocument } from './merge.js';
 export interface Identifier {
   type: string;
   value: string;
+  /**
+   * The client does not consider this identifier sufficient to claim a record
+   * that already exists, so a push whose walk stops on it writes under its own
+   * `document` instead. Carried in a PUT body only: adoption is a property of a
+   * write, so the flattened read form has no equivalent.
+   */
+  weak?: boolean;
 }
 
 export const MAX_IDENTIFIERS = 8;
@@ -42,9 +49,13 @@ export function parseList(raw: unknown): Identifier[] | null {
   const list: Identifier[] = [];
   for (const entry of raw) {
     if (typeof entry !== 'object' || entry === null) return null;
-    const { type, value } = entry as { type?: unknown; value?: unknown };
+    const { type, value, weak } = entry as { type?: unknown; value?: unknown; weak?: unknown };
     if (typeof type !== 'string' || typeof value !== 'string') return null;
-    list.push({ type, value });
+    // Anything but a boolean is rejected rather than read as absent. Taking a
+    // weak identifier for a strong one is the clobber the flag exists to stop,
+    // and the client that sent it would never know.
+    if (weak !== undefined && typeof weak !== 'boolean') return null;
+    list.push(weak === true ? { type, value, weak: true } : { type, value });
   }
   return validate(list);
 }
@@ -52,7 +63,7 @@ export function parseList(raw: unknown): Identifier[] | null {
 /**
  * The same list flattened to `type:value,type:value`. A GET has no body and
  * repeated query parameters are not reliably ordered, so the order lives in one
- * parameter.
+ * parameter. There is no `weak` in this grammar: a read adopts nothing.
  */
 export function parseQuery(raw: string): Identifier[] | null {
   if (raw.length === 0) return null;
@@ -127,6 +138,10 @@ function aliasTarget(db: DB, userId: number, alias: string): string | null {
  * Walk the list in the caller's order, trying each value as a document (through
  * any merge that applies) before following it through the alias table, and stop
  * at the first hit.
+ *
+ * The first hit is the answer whether or not the caller marked it weak. Weakness
+ * decides what a write does with the record, not which entry resolves it, and
+ * the walk does not look past a weak hit for a strong one further down.
  *
  * The order is the client's preference, so it is what decides between a strong
  * identifier and a weak one; a server that resolved in its own order would give

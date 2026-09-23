@@ -61,7 +61,23 @@ const retagged = [
   { type: 'filename', value: md5('two-filename') },
 ];
 
-type Ids = { type: string; value: string }[];
+/**
+ * The same two mistagged books, but the client says what the shared tag is
+ * worth: an identifier that can name a different work, offered to be seeded
+ * from and not to claim a record.
+ */
+const weakOne = [
+  { type: 'content', value: B1 },
+  { type: 'structure', value: B1S },
+  { type: 'filename', value: MISTAGGED, weak: true },
+];
+const weakTwo = [
+  { type: 'content', value: B2 },
+  { type: 'structure', value: B2S },
+  { type: 'filename', value: MISTAGGED, weak: true },
+];
+
+type Ids = { type: string; value: string; weak?: boolean }[];
 
 function push(
   app: Hono<AppEnv>,
@@ -272,6 +288,96 @@ describe('multi-identifier document matching', () => {
     // match overwrote on the first book.
     const first = await read(app, headers, B1, one);
     expect(await first.json()).toMatchObject({ document: B1, progress: '/body/p[1]' });
+  });
+
+  it('does not adopt a record its walk reached through a weak identifier', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    await push(app, headers, B1, weakOne, XP, 0.8);
+    const second = await push(app, headers, B2, weakTwo, '/body/p[1]', 0.01);
+
+    // Its own digest, and the type of the entry naming it: a push that adopts
+    // nothing answers exactly as a create does.
+    expect(await second.json()).toMatchObject({ document: B2, match: 'content' });
+
+    const first = await read(app, headers, B1, [{ type: 'content', value: B1 }]);
+    expect(await first.json()).toMatchObject({ document: B1, progress: XP, percentage: 0.8 });
+    const own = await read(app, headers, B2, [{ type: 'content', value: B2 }]);
+    expect(await own.json()).toMatchObject({ document: B2, progress: '/body/p[1]', percentage: 0.01 });
+  });
+
+  it('seeds a reader from a weak identifier it did not adopt', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    await push(app, headers, B1, weakOne, XP, 0.8);
+    await push(app, headers, B2, weakTwo, '/body/p[1]', 0.01);
+
+    // The tag still resolves, to the book that registered it. A read is where
+    // a weak identifier is worth something, and progress_match says so.
+    const seeded = await read(app, headers, MISTAGGED, [
+      { type: 'filename', value: MISTAGGED },
+    ]);
+    expect(await seeded.json()).toMatchObject({
+      document: B1,
+      match: 'filename',
+      progress_match: 'filename',
+      progress: XP,
+    });
+
+    // And the second book's own digests describe the record it created, so a
+    // recompressed copy of it still finds it.
+    const repacked = await read(app, headers, md5('two-repack'), [
+      { type: 'content', value: md5('two-repack') },
+      { type: 'structure', value: B2S },
+    ]);
+    expect(await repacked.json()).toMatchObject({ document: B2, match: 'structure' });
+  });
+
+  it('adopts through a strong identifier even when the list carries weak ones', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    await push(app, headers, B1, weakOne, XP, 0.8);
+
+    const repack = md5('one-repack');
+    const adopted = await push(
+      app,
+      headers,
+      repack,
+      [
+        { type: 'content', value: repack },
+        { type: 'structure', value: B1S },
+        { type: 'filename', value: MISTAGGED, weak: true },
+      ],
+      '/body/p[6]',
+      0.9
+    );
+    expect(await adopted.json()).toMatchObject({ document: B1, match: 'structure' });
+
+    const res = await read(app, headers, B1, [{ type: 'content', value: B1 }]);
+    expect(await res.json()).toMatchObject({ progress: '/body/p[6]', percentage: 0.9 });
+  });
+
+  it('rejects a weak that is not a boolean, and has no grammar for one on a read', async () => {
+    const { app } = makeTestApp();
+    const { headers } = await registerUser(app);
+    for (const weak of ['yes', 1, null]) {
+      const res = await push(
+        app,
+        headers,
+        C1,
+        [{ type: 'content', value: C1, weak }] as Ids,
+        XP
+      );
+      expect(res.status, JSON.stringify(weak)).toBe(403);
+      expect(await res.json()).toMatchObject({ code: 2003 });
+    }
+
+    // false is a valid value and means strong.
+    const strong = await push(app, headers, C1, [{ type: 'content', value: C1, weak: false }], XP);
+    expect(strong.status).toBe(200);
+
+    const read403 = await read(app, headers, C1, `content:${C1}:true`);
+    expect(read403.status).toBe(403);
   });
 
   it('returns 200 with an empty body for a book unknown under every identifier', async () => {
