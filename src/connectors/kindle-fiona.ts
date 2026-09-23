@@ -199,6 +199,10 @@ export async function registerDevice(
     signal: AbortSignal.timeout(30_000),
   });
   const text = await res.text();
+  // GATE (observed 2026): the OTP challenge is a 401 whose body still says
+  // <customer_not_found>, identical to a wrong-password 401. The only signal
+  // distinguishing them is whether the OTP email arrives, so a 401 is always
+  // "check your email; no email means the password was wrong".
   if (res.status === 401) return { status: 'otp_required', deviceSerial };
   if (res.status < 200 || res.status >= 300) {
     const preview = text.replace(/\s+/g, ' ').trim().slice(0, 300);

@@ -98,7 +98,9 @@ export function kindleRegisterRoutes(
       return c.json({
         status: 'otp_required',
         nonce,
-        message: 'Amazon emailed a verification code. Submit it to the complete endpoint within 10 minutes.',
+        message:
+          'If the password was right, Amazon emailed a verification code; submit it to the complete ' +
+          'endpoint within 10 minutes. No email means the password was wrong (Amazon answers both the same way).',
       });
     }
     // No OTP round needed (Amazon sometimes accepts the first attempt).

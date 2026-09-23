@@ -39,6 +39,9 @@ async function registerAttempt(email, password, serial) {
     body: registrationBody({ email, password, serial, deviceName: DEVICE_NAME, deviceType: DEVICE_TYPE, softwareVersion: SOFTWARE_VERSION }),
   });
   const text = await res.text();
+  // The OTP challenge is a 401 whose body still says <customer_not_found>,
+  // identical to a wrong-password 401 (observed 2026). The only signal
+  // distinguishing them is whether the OTP email arrives.
   if (res.status === 401) return { otp: true };
   if (!res.ok) throw new Error(`Amazon registration failed (HTTP ${res.status}): ${text.slice(0, 200)}`);
   const parsed = parseRegisterResponseXml(text);

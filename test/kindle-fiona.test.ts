@@ -119,6 +119,20 @@ describe('registerDevice', () => {
     expect(result.device.deviceName).toBe('CrossPoint Sync');
   });
 
+  it('treats a customer_not_found 401 as the OTP challenge (observed: both look identical)', async () => {
+    const { transport } = transportReturning(
+      401,
+      '<response><customer_not_found>No customer found for this e-mail address and password.' +
+      '</customer_not_found><error_code>401</error_code></response>'
+    );
+    const result = await registerDevice(transport, {
+      email: 'u@example.com',
+      password: 'secret',
+      deviceSerial: 'c'.repeat(40),
+    });
+    expect(result).toEqual({ status: 'otp_required', deviceSerial: 'c'.repeat(40) });
+  });
+
   it('throws a FionaError when Amazon rejects without credentials', async () => {
     const { transport } = transportReturning(200, '<response><message>bad code</message></response>');
     await expect(
