@@ -93,9 +93,11 @@ export interface OutboundEvent {
   };
 }
 
-/** Result of a push attempt; retryable=false means don't re-queue (permanent). */
+/** Result of a push attempt; retryable=false means don't re-queue (permanent).
+ *  note: a per-book condition worth surfacing in the review UI (e.g. "no page
+ *  count on Hardcover"); persisted on the match, cleared when absent. */
 export type PushResult =
-  | { ok: true }
+  | { ok: true; note?: string }
   | { ok: false; retryable: boolean; error: string; needsReauth?: boolean };
 
 /** Operational failure for connector lifecycle work. */

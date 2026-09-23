@@ -96,6 +96,7 @@ export interface MatchRow {
   confidence: number;
   source: string;
   query_used: string | null;
+  push_note: string | null;
   updated_at: number;
 }
 
@@ -138,6 +139,7 @@ export function saveMatch(
        confidence = excluded.confidence,
        source = excluded.source,
        query_used = excluded.query_used,
+       push_note = NULL,
        updated_at = excluded.updated_at`
   ).run(
     userId,
@@ -182,6 +184,19 @@ export function seedSidecarMatches(
       now
     );
   }
+}
+
+/** Record (or clear) a per-book push condition for the review UI. */
+export function setMatchNote(
+  db: DB,
+  userId: number,
+  connectorId: string,
+  document: string,
+  note: string | null
+): void {
+  db.prepare(
+    'UPDATE connector_matches SET push_note = ? WHERE user_id = ? AND connector_id = ? AND document = ?'
+  ).run(note, userId, connectorId, document);
 }
 
 export function listMatches(db: DB, userId: number, connectorId: string): MatchRow[] {

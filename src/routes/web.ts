@@ -837,8 +837,16 @@ async function renderList() {
     const state = b.matched
       ? '<span class="pill ok">' + (b.source === 'manual' ? 'matched (manual)' : 'matched') + '</span>'
       : '<span class="pill warn">not matched</span>';
+    const note = b.push_note
+      ? '<div class="muted" style="margin-top:6px;color:#b45309">&#9888; ' + esc(b.push_note)
+        + (ID === 'hardcover' && b.title
+          ? ' <a href="https://hardcover.app/search?q=' + encodeURIComponent(b.title) + '" target="_blank" rel="noopener noreferrer">Open it on Hardcover</a>'
+          : '')
+        + '</div>'
+      : '';
     return '<div class="card"><div class="row"><div><div style="font-weight:600">' + name + ' ' + state + '</div>'
       + (b.matched ? '<div class="muted" style="margin-top:3px">id ' + esc(b.external_id) + '</div>' : '')
+      + note
       + '</div><button class="ghost" data-pick="' + esc(b.document) + '">' + (b.matched ? 'Change' : 'Match') + '</button></div>'
       + '<div class="picker" id="pick-' + esc(b.document) + '" hidden style="margin-top:12px"></div></div>';
   }).join('');

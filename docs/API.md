@@ -471,6 +471,10 @@ Unlink; wipes the stored credential, all matches, and queued work.
 
 Lists resolved book matches (for a review UI): `{"connector": "hardcover", "matches": [{"document",
 "external_id", "confidence", "source": "auto|manual|none", "query_used", "updated_at"}]}`.
+The review endpoint (`GET /connectors/{id}/review`) additionally carries `push_note`: a
+per-book condition from the last successful push (e.g. Hardcover has no page count for
+the book, so progress cannot sync), or null. Cleared automatically when the condition
+resolves or the match changes.
 
 #### PUT /api/v1/connectors/{id}/matches/{document}
 

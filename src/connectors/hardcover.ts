@@ -383,7 +383,10 @@ async function push(
         })
       );
     }
-    return { ok: true };
+    return {
+      ok: true,
+      note: 'Hardcover has no page count for this book, so progress cannot sync (shelf status still does). Add a page count to any edition on hardcover.app and it will start syncing.',
+    };
   }
   const progressPages = Math.max(0, Math.min(edition.pages, Math.floor(pct * edition.pages)));
 

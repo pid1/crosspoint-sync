@@ -285,7 +285,8 @@ export function connectorRoutes(
     const rows = db
       .prepare(
         `SELECT p.document AS document, d.title AS title, d.author AS author,
-                m.external_id AS external_id, m.source AS source, m.confidence AS confidence
+                m.external_id AS external_id, m.source AS source, m.confidence AS confidence,
+                m.push_note AS push_note
          FROM progress p
          LEFT JOIN documents d ON d.user_id = p.user_id AND d.document = p.document
          LEFT JOIN connector_matches m ON m.user_id = p.user_id AND m.connector_id = ? AND m.document = p.document
@@ -301,6 +302,7 @@ export function connectorRoutes(
       external_id: string | null;
       source: string | null;
       confidence: number | null;
+      push_note: string | null;
     }[];
     return c.json({
       connector: conn.id,
@@ -312,6 +314,7 @@ export function connectorRoutes(
         external_id: r.external_id,
         source: r.source ?? 'none',
         confidence: r.confidence ?? 0,
+        push_note: r.push_note,
       })),
     });
   });
