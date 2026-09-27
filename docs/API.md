@@ -173,7 +173,8 @@ server matches on the first one it recognises.
   "identifiers": [
     {"type": "content",   "value": "<content digest>"},
     {"type": "structure", "value": "<structure digest>"},
-    {"type": "filename",  "value": "<filename digest>", "weak": true}
+    {"type": "metadata",  "value": "<metadata digest>", "weak": true},
+    {"type": "filename",  "value": "<filename digest>"}
   ],
   "progress": "/body/DocFragment[20]/body/p[22]", "percentage": 0.32, "device": "kpw"
 }
@@ -182,7 +183,7 @@ server matches on the first one it recognises.
 ```
 
 ```
-GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,filename:<f>
+GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,metadata:<m>,filename:<f>
 ```
 
 ```json
@@ -194,8 +195,10 @@ GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,filename:<f>
 - `type` is an opaque label chosen by the client: the server stores and echoes it without
   interpreting it, so a new kind of identifier needs no server change. It is not opaque to the
   clients, which have to compute a label the same way to agree on what it means. The registry is
-  `content` (the file's own digest), `structure` (md5 over the spine) and `filename` (md5 of the
-  file name); the recipes are in §5.8 of the spec.
+  `content` (the file's own digest), `structure` (md5 over the spine), `metadata` (md5 over the
+  normalised title and authors) and `filename` (md5 of the file name); the recipes are in §5.8 of
+  the spec. The spec requires `metadata` to be sent weak (`[K-ID-17]`), since two works can share
+  a title and author.
 - `document` in the response is the **canonical** key the record is stored under, which is not
   necessarily the one the request sent. Address that one on the next request.
 - `match` is the type that **found** the record. `progress_match` is the strongest identifier the
@@ -227,7 +230,7 @@ GET /syncs/progress/<content digest>?ids=content:<c>,structure:<s>,filename:<f>
   the record is the caller's own, whether it created it or wrote to it again.
 - **A request that names no identifiers is answered exactly as it always was**: no `match`, no
   `progress_match`, and the read follows no alias. Aliases belong to callers who opt in. Manual
-  merges (`POST /api/v1/documents/merge`) are separate and still apply to every request.
+  merges (`POST /api/v1/documents/merge`) are separate and apply to every request.
 
 ---
 
